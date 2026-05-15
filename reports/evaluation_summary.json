@@ -1,0 +1,22 @@
+{
+  "summary": {
+    "rows_total": 5098,
+    "rows_test": 1020,
+    "attack_ratio_total": 0.6000392310710082,
+    "roc_auc": 0.993638264129181,
+    "pr_auc": 0.992186083374206
+  },
+  "threshold_metrics": {
+    "threshold": 0.5,
+    "accuracy": 0.9911764705882353,
+    "precision_attack": 0.9870759289176091,
+    "recall_attack": 0.9983660130718954,
+    "f1_attack": 0.9926888708367181,
+    "false_positive_rate": 0.0196078431372549,
+    "false_negative_rate": 0.0016339869281045752,
+    "tp": 611,
+    "tn": 400,
+    "fp": 8,
+    "fn": 1
+  }
+}

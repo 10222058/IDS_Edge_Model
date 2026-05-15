@@ -1,0 +1,45 @@
+flowchart LR
+  subgraph Inputs
+    A1[Packet capture (wlan0)\n`ids_gateway.capture.py`]
+    A2[ESP32 MQTT telemetry\n(`sensor/+/data`) ]
+    A3[Datasets\n`CIC-DDoS2019`, `BoT-IoT`, ...]
+    A4[Attack simulator (testing)\n`scripts/attack_sim/simulate_ddos.py`]
+  end
+
+  A1 --> FE[Feature extraction\n`features.build_feature_vector()`]
+  A2 --> FE
+  A3 --> PD[Prepare dataset\n`train/prepare_ids_dataset.py`]
+  PD --> DProcessed[`data/processed/ids_features.csv`]
+  DProcessed --> TRAIN[Train models\n`train/train_ids_model.py`\noutputs: `model_stage1.joblib`, `model_stage2.joblib`, `feature_scaler.joblib`]
+
+  FE --> SCALE[Scaler load/apply\n`models/feature_scaler.joblib`]
+  SCALE --> S1[Stage1: Binary detector\n`model_stage1.joblib`\n(RandomForest / LightGBM)]
+  TRAIN --> S1
+
+  S1 --> SCORE[Compute `attack_score`\ncombine `model_prob` + `stat_score`]
+  SCORE --> DECIDE{`attack_score >= threshold?`}
+  DECIDE -- No --> NORMAL[Normal -> log / continue]
+  DECIDE -- Yes --> S2[Stage2: Family classifier\n`model_stage2.joblib`\n(multiclass LightGBM)]
+
+  S2 --> FAMILY[attack_family + family_prob]
+  FAMILY --> LOGIC[Decision logic\n(whitelist, consecutive windows, policies)]
+  LOGIC --> ACTION{Action}
+  ACTION --> ALERT[Alert (MQTT / webhook)]
+  ACTION --> THROTTLE[Throttle (tc / iptables rate-limit)]
+  ACTION --> BLOCK[Block (ipset + iptables / nftables)]
+
+  ALERT --> OUTPUTS[Logs / reports / Grafana / Loki]
+  THROTTLE --> OUTPUTS
+  BLOCK --> OUTPUTS
+
+  subgraph Runtime
+    SVC[`ids_gateway.main`\n(systemd: `ids_gateway.service`)]
+  end
+  SVC --> FE
+  SVC --> SCALE
+  SVC --> S1
+  SVC --> S2
+
+  %% Testing/evaluation paths
+  A4 --> SVC
+  DProcessed --> EVAL[`train/evaluate_ids_model.py` -> `reports/`]

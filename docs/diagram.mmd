@@ -1,0 +1,79 @@
+flowchart LR
+  subgraph Inputs
+    A1[Packet capture (wlan0) | ids_gateway.capture.py]
+    A2[ESP32 MQTT telemetry | sensor/+/data]
+    A3[Datasets | CIC-DDoS2019, BoT-IoT, CIC-IDS2017, ...]
+    A4[Attack simulator | scripts/attack_sim/simulate_ddos.py]
+  end
+
+  A1 --> FE[Feature extraction | features.build_feature_vector()]
+  A2 --> FE
+
+  A3 --> PD[Prepare dataset | train/prepare_ids_dataset.py]
+  PD --> DProcessed[data/processed/ids_features.csv]
+  DProcessed --> TRAIN[Train models | train/train_ids_model.py\noutputs: model_stage1.joblib, model_stage2.joblib, feature_scaler.joblib]
+  TRAIN --> ModelRegistry[Model Registry / Versioning]
+
+  FE --> SCALE[Scaler load/apply | models/feature_scaler.joblib]
+  SCALE --> S1[Stage1: Binary detector | model_stage1.joblib (RandomForest/LightGBM)]
+
+  %% Stat/heuristic engine
+  FE --> StatEngine[Stat engine | compute pkt_rate, syn_rate, dst_port_entropy]
+  StatEngine --> SCORE[Compute attack_score | combine model_prob + stat_score]
+  S1 --> SCORE
+
+  SCORE --> DECIDE{attack_score >= threshold?}
+  DECIDE -- No --> NORMAL[Normal | log / continue]
+  DECIDE -- Yes --> S2[Stage2: Family classifier | model_stage2.joblib (LightGBM multiclass)]
+
+  S2 --> FAMILY[attack_family + family_prob]
+
+  %% Whitelist and policy
+  FAMILY --> Whitelist[Whitelist check | configs/ids_config.yaml]
+  Whitelist -- trusted --> NORMAL
+  Whitelist -- not trusted --> LOGIC[Decision logic | consecutive windows, family policy, max_auto_block]
+
+  LOGIC --> ACTION{Action}
+  ACTION --> ALERT[Alert | MQTT / webhook]
+  ACTION --> THROTTLE[Throttle | tc / iptables rate-limit]
+  ACTION --> BLOCK[Block | ipset + iptables / nftables]
+
+  %% Blockstore and cleanup
+  BLOCK --> BlockStore[ipset / blockstore]
+  BlockStore --> Cleanup[Cleanup worker | expiry remove]
+
+  %% Forensics
+  ACTION --> Forensics[PCAP capture (optional) | archive for analysis]
+
+  %% Monitoring & operator
+  ALERT --> Outputs[Logs / reports / Grafana / Loki]
+  Outputs --> Operator[Operator UI / Manual override]
+  Operator --> Unblock[Manual unblock / override]
+
+  %% Model lifecycle & retrain
+  EVAL[Evaluation / Drift detection | train/evaluate_ids_model.py] --> ModelRegistry
+  ModelRegistry --> Retrain[Retrain scheduler / trigger]
+  Retrain --> TRAIN
+
+  %% Runtime service
+  subgraph Runtime
+    SVC[ids_gateway.main | systemd: ids_gateway.service]
+  end
+  SVC --> FE
+  SVC --> SCALE
+  SVC --> S1
+  SVC --> S2
+  SVC --> StatEngine
+  SVC --> BlockStore
+
+  %% Testing hooks
+  A4 --> SVC
+  DProcessed --> EVAL
+
+  %% Metrics exporter
+  SVC --> Metrics[Metrics exporter | Prometheus]
+  Metrics --> Grafana[Grafana]
+
+  %% Safety fallback
+  Safety[Monitor-only / Fail-open] --> SVC
+  SVC --> Safety

@@ -1,0 +1,29 @@
+gateway:
+  capture_interface: wlan0
+  gateway_subnet: 192.168.4.0/24
+  default_block_seconds: 600
+  packet_window_seconds: 10
+  inference_interval_seconds: 2
+  suspicious_threshold: 0.75
+
+model:
+  type: random_forest
+  path: models/ids_model.joblib
+  scaler_path: models/feature_scaler.joblib
+  expected_features:
+    - pkt_count
+    - tcp_count
+    - udp_count
+    - icmp_count
+    - syn_count
+    - ack_count
+    - rst_count
+    - unique_dst_port_count
+    - avg_pkt_len
+    - mean_inter_arrival_ms
+
+training:
+  dataset_path: data/processed/ids_features.csv
+  label_column: label
+  test_size: 0.2
+  random_state: 42
