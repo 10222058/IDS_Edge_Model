@@ -53,19 +53,24 @@ class WizardApiTests(unittest.TestCase):
         self.assertEqual(env["telemetry"].get("backend"), "native")
         self.assertFalse(env.get("docker_required", True))
         with urllib.request.urlopen(self.base + "/wizard.html", timeout=5) as resp:
-            html = resp.read().decode("utf-8")
-        self.assertIn("IoT Gateway Monitor", html)
-        self.assertIn("Monitoring only", html)
-        self.assertIn("Full setup", html)
-        self.assertNotIn("lab.html", html)
+            wizard_html = resp.read().decode("utf-8")
+        self.assertIn("IoT Gateway Monitor", wizard_html)
+        self.assertIn("Monitoring only", wizard_html)
+        self.assertIn("Full setup", wizard_html)
+        self.assertIn("Open Monitoring", wizard_html)
+        self.assertNotIn("lab.html", wizard_html)
         with urllib.request.urlopen(self.base + "/actions.html", timeout=5) as resp:
-            html = resp.read().decode("utf-8")
-        self.assertIn("Actions", html)
-        self.assertIn("Rotate CA", html)
+            actions_html = resp.read().decode("utf-8")
+        self.assertIn("Actions", actions_html)
+        self.assertIn("Rotate CA", actions_html)
         with urllib.request.urlopen(self.base + "/monitoring.html", timeout=5) as resp:
             mon = resp.read().decode("utf-8")
-        self.assertIn("Native Monitoring", mon)
+        self.assertIn("Monitoring", mon)
         self.assertIn("monitoring.js", mon)
+        with urllib.request.urlopen(self.base + "/wizard.js", timeout=5) as resp:
+            wjs = resp.read().decode("utf-8")
+        self.assertIn("background: true", wjs)
+        self.assertIn("iotgw_setup_path", wjs)
         with urllib.request.urlopen(self.base + "/monitoring.js", timeout=5) as resp:
             js = resp.read().decode("utf-8")
         self.assertIn("/api/v1/query/summaries", js)
@@ -121,6 +126,70 @@ class WizardApiTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 400)
         body = json.loads(ctx.exception.read().decode("utf-8"))
         self.assertIn("pin", body.get("error", "").lower())
+
+    def test_telemetry_ensure_background_job(self) -> None:
+        from shell import wizard_server as ws
+
+        class _Snap:
+            ready = False
+            binaries_present = True
+            loki_running = False
+            prometheus_running = False
+            detail = "waiting"
+            progress = "Downloading (10%)"
+
+        class _FakeTel:
+            def snapshot(self):
+                return _Snap()
+
+            def ensure_binaries(self, force=False):  # noqa: ANN001
+                return {}
+
+            def start(self, **kwargs):  # noqa: ANN003
+                import time
+
+                time.sleep(0.15)
+
+                class _St:
+                    running = True
+                    detail = "Loki and Prometheus are running."
+                    loki = None
+                    prometheus = None
+
+                _Snap.ready = True
+                _Snap.loki_running = True
+                _Snap.prometheus_running = True
+                _Snap.detail = "Loki and Prometheus are running."
+                return _St()
+
+        with mock.patch.object(ws.STATE, "_telemetry", _FakeTel()):
+            # Reset job state between tests (module-level STATE).
+            with ws.STATE.lock:
+                ws.STATE._telemetry_job = {
+                    "state": "idle",
+                    "detail": "",
+                    "error": None,
+                }
+            out = self._post(
+                "/api/wizard/telemetry/ensure",
+                {"background": True},
+            )
+            self.assertTrue(out.get("background"))
+            self.assertIn(out.get("job", {}).get("state"), ("running", "ok"))
+
+            import time
+
+            deadline = time.time() + 5
+            final = None
+            while time.time() < deadline:
+                final = self._get("/api/wizard/telemetry/status")
+                if final.get("job", {}).get("state") in ("ok", "error"):
+                    break
+                time.sleep(0.05)
+            self.assertIsNotNone(final)
+            assert final is not None
+            self.assertEqual(final["job"]["state"], "ok")
+            self.assertTrue(final.get("ready"))
 
     def test_services_start_default_skips_streamlit(self) -> None:
         from shell import wizard_server as ws

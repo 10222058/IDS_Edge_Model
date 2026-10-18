@@ -47,6 +47,13 @@ class WizardState:
         self.admin = admin_auth.AdminGate()
         self.last_signing_export: str | None = None
         self._telemetry = None
+        # Background Install monitoring job (avoids long-blocking HTTP fetches).
+        self._telemetry_job: dict[str, Any] = {
+            "state": "idle",  # idle | running | ok | error
+            "detail": "",
+            "error": None,
+        }
+        self._telemetry_thread: threading.Thread | None = None
 
     @property
     def telemetry(self):
@@ -60,6 +67,75 @@ class WizardState:
 
             self._telemetry = NativeTelemetryManager(ensure_data_dir() / "telemetry")
         return self._telemetry
+
+    def telemetry_job_snapshot(self) -> dict[str, Any]:
+        with self.lock:
+            return dict(self._telemetry_job)
+
+    def start_telemetry_job(
+        self, *, gateway_ip: str | None = None, force: bool = False
+    ) -> dict[str, Any]:
+        """Kick off download+start on a daemon thread; poll via telemetry_job_snapshot."""
+        with self.lock:
+            if self._telemetry_job.get("state") == "running":
+                return {"started": False, "job": dict(self._telemetry_job)}
+            self._telemetry_job = {
+                "state": "running",
+                "detail": "Installing monitoring…",
+                "error": None,
+            }
+
+        def _run() -> None:
+            try:
+                tel = self.telemetry
+                # Fast path: already healthy → mark ok without re-downloading.
+                snap0 = tel.snapshot()
+                if snap0.ready and not force:
+                    with self.lock:
+                        self._telemetry_job = {
+                            "state": "ok",
+                            "detail": snap0.detail
+                            or "Loki and Prometheus are running.",
+                            "error": None,
+                        }
+                    return
+                settings = load_settings()
+                gw = gateway_ip or str(settings.get("gateway_ip") or "127.0.0.1")
+                # start() downloads binaries only when ports are free / not ready.
+                st = tel.start(
+                    gateway_ip=gw, wait=True, ensure_bins=True
+                )
+                if force and not st.running:
+                    # Force path: re-fetch then retry once.
+                    tel.ensure_binaries(force=True)
+                    st = tel.start(
+                        gateway_ip=gw, wait=True, ensure_bins=False
+                    )
+                snap = tel.snapshot()
+                ready = bool(st.running) or bool(snap.ready)
+                detail = st.detail or snap.detail or ""
+                with self.lock:
+                    self._telemetry_job = {
+                        "state": "ok" if ready else "error",
+                        "detail": detail
+                        if ready
+                        else (detail or "Install failed."),
+                        "error": None if ready else (detail or "Install failed."),
+                    }
+            except Exception as e:  # noqa: BLE001
+                with self.lock:
+                    self._telemetry_job = {
+                        "state": "error",
+                        "detail": str(e),
+                        "error": str(e),
+                    }
+
+        thread = threading.Thread(
+            target=_run, name="iotgw-telemetry-ensure", daemon=True
+        )
+        self._telemetry_thread = thread
+        thread.start()
+        return {"started": True, "job": self.telemetry_job_snapshot()}
 
 
 STATE = WizardState()
@@ -144,6 +220,7 @@ def _handle_api(
             snap = detect.environment_snapshot()
             try:
                 tel = STATE.telemetry.snapshot()
+                job = STATE.telemetry_job_snapshot()
                 snap["telemetry"] = {
                     "backend": "native",
                     "ready": tel.ready,
@@ -152,6 +229,7 @@ def _handle_api(
                     "prometheus_running": tel.prometheus_running,
                     "detail": tel.detail,
                     "progress": tel.progress,
+                    "job": job,
                     "hint": (
                         "Loki and Prometheus are running."
                         if tel.ready
@@ -164,6 +242,7 @@ def _handle_api(
                     "ready": False,
                     "detail": str(e),
                     "hint": "Monitoring is unavailable.",
+                    "job": STATE.telemetry_job_snapshot(),
                 }
             # Docker is legacy/optional; default path does not require it.
             snap["docker_required"] = False
@@ -174,23 +253,64 @@ def _handle_api(
             body = _read_json(handler)
             gateway_ip = str(body.get("gateway_ip") or "").strip() or None
             force = bool(body.get("force", False))
+            # background=True (Wizard default): return immediately and poll status.
+            # background=False: block until ready (tests / automation).
+            background = bool(body.get("background", False))
+            if background:
+                out = STATE.start_telemetry_job(gateway_ip=gateway_ip, force=force)
+                tel = STATE.telemetry.snapshot()
+                job = out["job"]
+                _json_response(
+                    handler,
+                    200,
+                    {
+                        "ok": True,
+                        "background": True,
+                        "started": out["started"],
+                        "job": job,
+                        "telemetry": {
+                            "backend": "native",
+                            "ready": tel.ready,
+                            "binaries_present": tel.binaries_present,
+                            "loki_running": tel.loki_running,
+                            "prometheus_running": tel.prometheus_running,
+                            "detail": job.get("detail") or tel.detail,
+                            "progress": tel.progress,
+                        },
+                    },
+                )
+                return
             try:
-                if force or not STATE.telemetry.snapshot().binaries_present:
-                    STATE.telemetry.ensure_binaries(force=force)
                 settings = load_settings()
                 gw = gateway_ip or str(settings.get("gateway_ip") or "127.0.0.1")
-                st = STATE.telemetry.start(gateway_ip=gw, wait=True, ensure_bins=True)
+                # start() probes first, then downloads only if needed.
+                st = STATE.telemetry.start(
+                    gateway_ip=gw, wait=True, ensure_bins=True
+                )
+                if force:
+                    STATE.telemetry.stop()
+                    STATE.telemetry.ensure_binaries(force=True)
+                    st = STATE.telemetry.start(
+                        gateway_ip=gw, wait=True, ensure_bins=False
+                    )
                 # Prefer start() result — snapshot used to overwrite Ready with
                 # binary-fetch progress ("already present") while child handles
                 # were unset after a previous session.
                 tel = STATE.telemetry.snapshot()
                 ready = bool(st.running) or bool(tel.ready)
                 detail = st.detail or tel.detail or ""
+                with STATE.lock:
+                    STATE._telemetry_job = {
+                        "state": "ok" if ready else "error",
+                        "detail": detail,
+                        "error": None if ready else detail,
+                    }
                 _json_response(
                     handler,
                     200,
                     {
                         "ok": ready,
+                        "background": False,
                         "telemetry": {
                             "backend": "native",
                             "ready": ready,
@@ -202,19 +322,65 @@ def _handle_api(
                             "detail": detail,
                             "progress": tel.progress,
                         },
+                        "job": STATE.telemetry_job_snapshot(),
                     },
                 )
             except Exception as e:  # noqa: BLE001
+                with STATE.lock:
+                    STATE._telemetry_job = {
+                        "state": "error",
+                        "detail": str(e),
+                        "error": str(e),
+                    }
                 _json_response(handler, 500, {"error": str(e), "ok": False})
             return
 
         if method == "POST" and path == "/api/wizard/telemetry/stop":
             STATE.telemetry.stop()
+            with STATE.lock:
+                if STATE._telemetry_job.get("state") != "running":
+                    STATE._telemetry_job = {
+                        "state": "idle",
+                        "detail": "Stopped.",
+                        "error": None,
+                    }
             _json_response(handler, 200, {"ok": True})
             return
 
         if method == "GET" and path == "/api/wizard/telemetry/status":
+            job = STATE.telemetry_job_snapshot()
+            # While installing, avoid slow HTTP probes so download progress stays fresh.
+            if job.get("state") == "running":
+                tel_mgr = STATE.telemetry
+                progress = str(getattr(tel_mgr, "last_progress", "") or "")
+                bins = False
+                bin_fn = getattr(tel_mgr, "_bin", None)
+                if callable(bin_fn):
+                    try:
+                        bins = bool(
+                            bin_fn("loki").is_file() and bin_fn("prometheus").is_file()
+                        )
+                    except Exception:  # noqa: BLE001
+                        bins = False
+                _json_response(
+                    handler,
+                    200,
+                    {
+                        "backend": "native",
+                        "ready": False,
+                        "binaries_present": bins,
+                        "loki_running": False,
+                        "prometheus_running": False,
+                        "detail": progress or job.get("detail") or "Installing…",
+                        "progress": progress,
+                        "job": job,
+                    },
+                )
+                return
             tel = STATE.telemetry.snapshot()
+            detail = tel.detail
+            if job.get("state") == "error":
+                detail = job.get("detail") or detail
             _json_response(
                 handler,
                 200,
@@ -224,8 +390,9 @@ def _handle_api(
                     "binaries_present": tel.binaries_present,
                     "loki_running": tel.loki_running,
                     "prometheus_running": tel.prometheus_running,
-                    "detail": tel.detail,
+                    "detail": detail,
                     "progress": tel.progress,
+                    "job": job,
                 },
             )
             return

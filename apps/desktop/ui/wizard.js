@@ -80,46 +80,102 @@
     el.innerHTML = `<span class="badge ${ok ? "ok" : "bad"}">${text}</span>`;
   }
 
+  function setTelemetryReadyUi(ready, detail) {
+    badge($("telemetry-badge"), !!ready, ready ? "Ready" : "Not installed");
+    $("telemetry-hint").textContent =
+      detail ||
+      (ready
+        ? "Loki and Prometheus are running."
+        : "Click Install monitoring to continue.");
+    $("hdr-status").innerHTML = ready
+      ? '<span class="badge ok">Ready</span>'
+      : '<span class="badge warn">Setup</span>';
+    const early = $("btn-open-mon-early");
+    if (early) early.disabled = !ready;
+  }
+
   async function refreshEnv() {
     const data = await api("/api/wizard/env");
     const t = data.telemetry || {};
-    badge(
-      $("telemetry-badge"),
+    const job = t.job || {};
+    if (job.state === "running") {
+      badge($("telemetry-badge"), false, "Installing…");
+      $("telemetry-hint").textContent =
+        t.progress || job.detail || "Installing…";
+      $("hdr-status").innerHTML = '<span class="badge warn">Setup</span>';
+      return;
+    }
+    setTelemetryReadyUi(
       !!t.ready,
-      t.ready ? "Ready" : "Not installed"
+      t.ready
+        ? t.detail || "Loki and Prometheus are running."
+        : t.progress || t.detail || "Click Install monitoring to continue."
     );
-    $("telemetry-hint").textContent = t.ready
-      ? t.detail || "Loki and Prometheus are running."
-      : t.progress || t.detail || "Click Install monitoring to continue.";
-    $("hdr-status").innerHTML = t.ready
-      ? '<span class="badge ok">Ready</span>'
-      : '<span class="badge warn">Setup</span>';
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async function prepareTelemetry() {
     $("telemetry-hint").textContent = "Installing…";
     badge($("telemetry-badge"), false, "Installing…");
+    const early = $("btn-open-mon-early");
+    if (early) early.disabled = true;
     try {
       const gw = ($("gateway-ip") && $("gateway-ip").value) || "";
-      const data = await api("/api/wizard/telemetry/ensure", {
+      // Background job + poll: large Loki/Prometheus downloads must not block
+      // a single HTTP request (common cause of "Install failed" on slow links).
+      await api("/api/wizard/telemetry/ensure", {
         method: "POST",
-        body: JSON.stringify({ gateway_ip: gw || undefined }),
+        body: JSON.stringify({
+          gateway_ip: gw || undefined,
+          background: true,
+        }),
       });
-      const t = data.telemetry || {};
-      const ready = !!(data.ok || t.ready);
-      badge($("telemetry-badge"), ready, ready ? "Ready" : "Failed");
-      // Prefer readiness detail — never show binary-fetch progress as the result.
-      $("telemetry-hint").textContent = ready
-        ? t.detail || "Loki and Prometheus are running."
-        : t.detail || "Install failed.";
-      $("hdr-status").innerHTML = ready
-        ? '<span class="badge ok">Ready</span>'
-        : '<span class="badge warn">Setup</span>';
-      if (!ready) throw new Error(t.detail || "Install failed");
+      const deadline = Date.now() + 15 * 60 * 1000;
+      let last = null;
+      while (Date.now() < deadline) {
+        last = await api("/api/wizard/telemetry/status");
+        const job = last.job || {};
+        const progress = last.progress || job.detail || "Installing…";
+        $("telemetry-hint").textContent = progress;
+        if (job.state === "ok") {
+          setTelemetryReadyUi(
+            true,
+            last.detail || job.detail || "Loki and Prometheus are running."
+          );
+          return;
+        }
+        if (job.state === "error") {
+          throw new Error(job.detail || last.detail || "Install failed");
+        }
+        // Job still running (or idle right after kick-off) — keep polling.
+        await sleep(900);
+      }
+      throw new Error(
+        (last && (last.detail || (last.job && last.job.detail))) ||
+          "Install timed out while downloading or starting monitoring."
+      );
     } catch (e) {
       badge($("telemetry-badge"), false, "Failed");
       $("telemetry-hint").textContent = String(e.message || e);
+      if (early) early.disabled = true;
     }
+  }
+
+  async function openMonitoring() {
+    // Monitoring UI needs the control service query API in front of Loki/Prometheus.
+    const hint = $("telemetry-hint");
+    const prev = hint ? hint.textContent : "";
+    if (hint) hint.textContent = "Starting control service…";
+    try {
+      await startServices();
+    } catch (_) {
+      /* startServices paints svc-msg on Finish; continue to Monitoring anyway */
+    }
+    if (hint && prev) hint.textContent = prev;
+    window.location.href = "monitoring.html";
   }
 
   async function stopTelemetry() {
@@ -334,7 +390,10 @@
     $("btn-prev").addEventListener("click", () => showStep(step - 1));
     $("btn-next").addEventListener("click", () => {
       if (step === steps().length - 1) {
-        window.location.href = "monitoring.html";
+        openMonitoring().catch((e) => {
+          showErr(e);
+          window.location.href = "monitoring.html";
+        });
         return;
       }
       showStep(step + 1);
@@ -345,6 +404,10 @@
     $("btn-stop-telemetry").addEventListener("click", () =>
       stopTelemetry().catch(showErr)
     );
+    const earlyMon = $("btn-open-mon-early");
+    if (earlyMon) {
+      earlyMon.addEventListener("click", () => openMonitoring().catch(showErr));
+    }
     $("btn-refresh-nics").addEventListener("click", () => refreshNics().catch(showErr));
     $("btn-save-nic").addEventListener("click", () => saveNic().catch(showErr));
     $("btn-fetch-hk").addEventListener("click", () =>
@@ -369,9 +432,9 @@
     $("btn-provision-agent").addEventListener("click", () =>
       provisionAgent().catch(showErr)
     );
-    $("btn-open-mon").addEventListener("click", () => {
-      window.location.href = "monitoring.html";
-    });
+    $("btn-open-mon").addEventListener("click", () =>
+      openMonitoring().catch(showErr)
+    );
     const openActions = $("btn-open-actions");
     if (openActions) {
       openActions.addEventListener("click", () => {

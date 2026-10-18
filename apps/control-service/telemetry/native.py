@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import signal
+import socket
 import subprocess
 import time
 from dataclasses import dataclass
@@ -14,6 +15,35 @@ from .binary_fetch import BinaryFetchError, ensure_telemetry_binaries
 from .lifecycle import BackendStatus
 from .readiness import check_loki, check_prometheus, wait_ready
 from .scrape import render_prometheus_scrape
+
+
+def _port_open(host: str, port: int, *, timeout: float = 0.4) -> bool:
+    """True when something accepts TCP connections on host:port."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _bind_conflict_message(log_text: str, *, port: int, name: str) -> str | None:
+    lowered = log_text.lower()
+    needles = (
+        "address already in use",
+        "only one usage of each socket address",
+        "bind: permission denied",
+        "listen tcp",
+        "failed to listen",
+    )
+    if any(n in lowered for n in needles) or (
+        f":{port}" in log_text and "bind" in lowered
+    ):
+        return (
+            f"Port {port} is already in use, so {name} cannot start. "
+            "Stop the other process (legacy Docker monitoring, another "
+            "Loki/Prometheus, or a previous app instance) and try again."
+        )
+    return None
 
 
 def _render_loki_config(data_root: Path) -> str:
@@ -225,15 +255,7 @@ class NativeTelemetryManager:
         wait_timeout_s: float = 90.0,
         ensure_bins: bool = True,
     ) -> BackendStatus:
-        if ensure_bins:
-            try:
-                self.ensure_binaries()
-            except BinaryFetchError as e:
-                return BackendStatus(
-                    running=False, compose_ps="native", detail=str(e)
-                )
-
-        # Already serving? Treat as success (orphans from a previous session, etc.).
+        # Already serving? Succeed before any download (common after app restart).
         already_ok, loki_p, prom_p = self._http_ready()
         if already_ok:
             return BackendStatus(
@@ -243,6 +265,19 @@ class NativeTelemetryManager:
                 loki=loki_p,
                 prometheus=prom_p,
             )
+
+        # Port taken by a non-ready process → fail fast with a clear message.
+        conflict = self._port_conflict_detail()
+        if conflict:
+            return BackendStatus(running=False, compose_ps="native", detail=conflict)
+
+        if ensure_bins:
+            try:
+                self.ensure_binaries()
+            except BinaryFetchError as e:
+                return BackendStatus(
+                    running=False, compose_ps="native", detail=str(e)
+                )
 
         self.write_configs(gateway_ip=gateway_ip or "127.0.0.1")
         loki_bin = self._bin("loki")
@@ -302,6 +337,25 @@ class NativeTelemetryManager:
             return st
         return self.status(probe=True)
 
+    def _port_conflict_detail(self) -> str | None:
+        """Detect ports occupied by something that is not ready Loki/Prometheus."""
+        parts: list[str] = []
+        if _port_open("127.0.0.1", 3100) and not check_loki(
+            "http://127.0.0.1:3100", timeout=1.0
+        ).ok:
+            parts.append(
+                "Port 3100 is in use but Loki is not ready. "
+                "Stop legacy Docker monitoring or another Loki process."
+            )
+        if _port_open("127.0.0.1", 9090) and not check_prometheus(
+            "http://127.0.0.1:9090", timeout=1.0
+        ).ok:
+            parts.append(
+                "Port 9090 is in use but Prometheus is not ready. "
+                "Stop legacy Docker monitoring or another Prometheus process."
+            )
+        return " ".join(parts) or None
+
     def _failure_detail(self, ready: dict) -> str:
         """Build an operator-facing error from probes + recent log tails."""
         parts: list[str] = []
@@ -312,7 +366,10 @@ class NativeTelemetryManager:
             parts.append(f"loki exited (code {self._loki.returncode})")
         if self._prom is not None and self._prom.poll() is not None:
             parts.append(f"prometheus exited (code {self._prom.returncode})")
-        for log_name in ("loki.log", "prometheus.log"):
+        for log_name, port, svc in (
+            ("loki.log", 3100, "Loki"),
+            ("prometheus.log", 9090, "Prometheus"),
+        ):
             path = self.root / "logs" / log_name
             if not path.is_file():
                 continue
@@ -320,10 +377,16 @@ class NativeTelemetryManager:
                 text = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
+            conflict = _bind_conflict_message(text, port=port, name=svc)
+            if conflict:
+                parts.append(conflict)
+                continue
             err_lines = [
                 ln.strip()
                 for ln in text.splitlines()
-                if "level=error" in ln or "permission denied" in ln.lower()
+                if "level=error" in ln
+                or "permission denied" in ln.lower()
+                or "address already in use" in ln.lower()
             ]
             if err_lines:
                 parts.append(f"{log_name}: {err_lines[-1][-240:]}")

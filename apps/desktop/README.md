@@ -6,9 +6,9 @@
 
 Download from [Releases / desktop-latest](https://github.com/ngmibach/iot-gateway/releases/tag/desktop-latest).
 
-1. **Prepare monitoring** in the Wizard (app fetches Loki + Prometheus).
-2. SSH pin + key → **Install / update gateway agent** (native Mosquitto + monolithic agent on the device).
-3. Actions + Monitoring in the UI.
+1. Choose **Monitoring only** (default) or **Full setup**.
+2. Click **Install monitoring** — the app downloads Loki + Prometheus and starts them (progress is polled; no Docker).
+3. Click **Open Monitoring** (or Finish → Done). Gateway SSH/agent steps stay optional until you pick Full setup.
 
 ## Maintainers
 

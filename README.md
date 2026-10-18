@@ -24,13 +24,14 @@ No Docker on the operator PC. No Docker on the gateway. No Lab / fake-sensor pan
 
 ### First-run Wizard (all in the UI)
 
-1. **Local monitoring** — click **Prepare monitoring**. The app downloads Loki + Prometheus once and starts them (no browser, no Docker).
-2. **NIC** — pick MONITORING_IP (LAN address the gateway will push logs to).
-3. **SSH** — pin host key, install ed25519 key (one-time password).
-4. **Firewall** (Windows) — optional guided checklist for Loki `:3100`.
-5. **Launch** — start control service, enter the **gateway sudo password**, then **Install / update gateway agent** (apt packages + agent over SSH via `sudo -S`; password is not saved on the PC; no Docker on the device).
+1. Choose **Monitoring only** (default) or **Full setup**.
+2. **Install monitoring** — downloads Loki + Prometheus once and starts them (progress in the Wizard; no Docker). Then **Open Monitoring** to view the UI.
+3. (Full setup) **NIC** — pick MONITORING_IP (LAN address the gateway will push logs to).
+4. (Full setup) **SSH** — pin host key, install ed25519 key (one-time password).
+5. (Full setup) **Firewall** (Windows) — optional guided checklist for Loki `:3100`.
+6. (Full setup) **Launch** — start control service, enter the **gateway sudo password**, then **Install gateway** (apt packages + agent over SSH via `sudo -S`; password is not saved on the PC; no Docker on the device).
 
-Then use **Actions** (register devices / certs) and **Monitoring**.
+Gateway and fake-sensor steps can wait; Monitoring only is enough for the PC-side stack.
 
 App data: Linux `~/.local/share/iot-gateway-monitor/`, Windows `%APPDATA%\IoTGatewayMonitor\`.
 
