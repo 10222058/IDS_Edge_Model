@@ -29,7 +29,11 @@ APPS = DESKTOP.parent
 REPO = APPS.parent
 
 ENTRY = str(SPECDIR / "entrypoint.py")
-ICON = DESKTOP / "src-tauri" / "icons" / "icon.png"
+# Prefer multi-size .ico on Windows; fall back to PNG elsewhere.
+_ICON_ICO = DESKTOP / "src-tauri" / "icons" / "icon.ico"
+_ICON_PNG = DESKTOP / "src-tauri" / "icons" / "icon.png"
+ICON = _ICON_ICO if _ICON_ICO.is_file() else _ICON_PNG
+VERSION_INFO = SPECDIR / "windows_version_info.txt"
 
 SKIP_DIR_NAMES = {
     ".venv",
@@ -168,6 +172,24 @@ a = Analysis(
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
 icon_arg = str(ICON) if ICON.is_file() else None
+# Embed FileDescription / ProductName so Windows shows a real app identity.
+version_arg = str(VERSION_INFO) if (os.name == "nt" and VERSION_INFO.is_file()) else None
+
+exe_common = dict(
+    name="IoTGatewayMonitor",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=console,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=icon_arg,
+    version=version_arg,
+)
 
 if onefile:
     exe = EXE(
@@ -177,19 +199,8 @@ if onefile:
         a.zipfiles,
         a.datas,
         [],
-        name="IoTGatewayMonitor",
-        debug=False,
-        bootloader_ignore_signals=False,
-        strip=False,
-        upx=False,
         runtime_tmpdir=None,
-        console=console,
-        disable_windowed_traceback=False,
-        argv_emulation=False,
-        target_arch=None,
-        codesign_identity=None,
-        entitlements_file=None,
-        icon=icon_arg,
+        **exe_common,
     )
 else:
     exe = EXE(
@@ -197,18 +208,7 @@ else:
         a.scripts,
         [],
         exclude_binaries=True,
-        name="IoTGatewayMonitor",
-        debug=False,
-        bootloader_ignore_signals=False,
-        strip=False,
-        upx=False,
-        console=console,
-        disable_windowed_traceback=False,
-        argv_emulation=False,
-        target_arch=None,
-        codesign_identity=None,
-        entitlements_file=None,
-        icon=icon_arg,
+        **exe_common,
     )
     coll = COLLECT(
         exe,

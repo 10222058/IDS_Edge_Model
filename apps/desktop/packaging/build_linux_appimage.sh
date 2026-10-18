@@ -42,10 +42,20 @@ mkdir -p \
 cp -a "$BIN_DIR" "$APPDIR/usr/lib/iot-gateway-monitor"
 ln -sf ../lib/iot-gateway-monitor/IoTGatewayMonitor "$APPDIR/usr/bin/IoTGatewayMonitor"
 
-ICON_SRC="$DESKTOP/src-tauri/icons/icon.png"
+ICON_SRC="$DESKTOP/src-tauri/icons/icon-256.png"
+if [[ ! -f "$ICON_SRC" ]]; then
+  ICON_SRC="$DESKTOP/src-tauri/icons/icon.png"
+fi
 ICON_DST="$APPDIR/usr/share/icons/hicolor/256x256/apps/iot-gateway-monitor.png"
+# AppImage / desktop entry expect ~256px PNG.
 cp "$ICON_SRC" "$ICON_DST"
 cp "$ICON_SRC" "$APPDIR/iot-gateway-monitor.png"
+# Also install 512px when available for HiDPI.
+if [[ -f "$DESKTOP/src-tauri/icons/icon.png" ]]; then
+  mkdir -p "$APPDIR/usr/share/icons/hicolor/512x512/apps"
+  cp "$DESKTOP/src-tauri/icons/icon.png" \
+    "$APPDIR/usr/share/icons/hicolor/512x512/apps/iot-gateway-monitor.png"
+fi
 
 cat > "$APPDIR/iot-gateway-monitor.desktop" <<'EOF'
 [Desktop Entry]

@@ -86,11 +86,13 @@ class ProcessManager:
             "env": env,
             "stdout": log_f,
             "stderr": subprocess.STDOUT,
-            "start_new_session": True,
         }
         if os.name == "nt":
             # Hide console for the child when the parent is a windowed .exe.
+            # Do not use start_new_session/killpg — those are POSIX-only.
             popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        else:
+            popen_kwargs["start_new_session"] = True
         proc = subprocess.Popen(cmd, **popen_kwargs)
         self._children.append(proc)
         url = f"http://{host}:{port}"
@@ -122,6 +124,16 @@ class ProcessManager:
         log_path = ensure_data_dir() / "streamlit.log"
         log_f = open(log_path, "a", encoding="utf-8")  # noqa: SIM115
         # streamlit may be missing; surface a clear error from wait_http
+        popen_kwargs: dict = {
+            "cwd": str(app_dir),
+            "env": env,
+            "stdout": log_f,
+            "stderr": subprocess.STDOUT,
+        }
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        else:
+            popen_kwargs["start_new_session"] = True
         proc = subprocess.Popen(
             [
                 py,
@@ -138,11 +150,7 @@ class ProcessManager:
                 "--browser.gatherUsageStats",
                 "false",
             ],
-            cwd=str(app_dir),
-            env=env,
-            stdout=log_f,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
+            **popen_kwargs,
         )
         self._children.append(proc)
         url = f"http://{host}:{port}"
@@ -174,21 +182,34 @@ class ProcessManager:
 
 
 def _terminate(proc: subprocess.Popen, *, grace: float = 5.0) -> None:
+    """Stop a managed child. Uses process groups on POSIX; terminate/kill on Windows."""
     if proc.poll() is not None:
         return
     try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError, OSError):
-        proc.terminate()
+        if os.name != "nt" and hasattr(os, "killpg"):
+            os.killpg(proc.pid, signal.SIGTERM)
+        else:
+            proc.terminate()
+    except (ProcessLookupError, PermissionError, OSError, AttributeError):
+        try:
+            proc.terminate()
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
     deadline = time.time() + grace
     while time.time() < deadline:
         if proc.poll() is not None:
             return
         time.sleep(0.1)
     try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
-        proc.kill()
+        if os.name != "nt" and hasattr(os, "killpg"):
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except (ProcessLookupError, PermissionError, OSError, AttributeError):
+        try:
+            proc.kill()
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
 
 
 def wait_http(url: str, *, timeout: float = 60.0, path: str = "") -> bool:

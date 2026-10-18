@@ -17,6 +17,26 @@ python -m pip install pyinstaller pillow \
 export IOTGW_PYI_ONEFILE=1
 export IOTGW_PYI_CONSOLE="${IOTGW_PYI_CONSOLE:-0}"
 
+# Ensure a multi-size .ico exists for the EXE resource (SmartScreen / Explorer icon).
+ICON_PNG="$DESKTOP/src-tauri/icons/icon.png"
+ICON_ICO="$DESKTOP/src-tauri/icons/icon.ico"
+if [[ -f "$ICON_PNG" ]] && [[ ! -f "$ICON_ICO" || "$ICON_PNG" -nt "$ICON_ICO" ]]; then
+  ICON_PNG="$ICON_PNG" ICON_ICO="$ICON_ICO" python - <<'PY'
+import os
+from pathlib import Path
+from PIL import Image
+
+png = Path(os.environ["ICON_PNG"])
+ico = Path(os.environ["ICON_ICO"])
+im = Image.open(png).convert("RGBA")
+sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+im.resize((256, 256), Image.Resampling.LANCZOS).save(
+    ico, format="ICO", sizes=sizes
+)
+print(f"Wrote {ico}")
+PY
+fi
+
 python -m PyInstaller \
   --noconfirm \
   --clean \
