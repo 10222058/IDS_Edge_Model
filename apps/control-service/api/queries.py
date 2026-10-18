@@ -60,6 +60,50 @@ RASPI_ACTIVE_CONTAINERS = (
     'count(container_last_seen{instance="$node",job="$job",name=~".+"} > (time() - 120))'
 )
 RASPI_UP = 'up{instance="$node",job="$job"}'
+RASPI_TEMP_C = 'node_hwmon_temp_celsius{instance="$node",job="$job"}'
+RASPI_UPTIME_S = (
+    'node_time_seconds{instance="$node",job="$job"}'
+    ' - node_boot_time_seconds{instance="$node",job="$job"}'
+)
+RASPI_SWAP_PCT = (
+    '((node_memory_SwapTotal_bytes{instance="$node",job="$job"}'
+    ' - node_memory_SwapFree_bytes{instance="$node",job="$job"})'
+    ' / node_memory_SwapTotal_bytes{instance="$node",job="$job"}) * 100'
+)
+RASPI_IOWAIT = (
+    'sum by (instance)(irate(node_cpu_seconds_total'
+    '{instance="$node",job="$job",mode="iowait"}[1m]))'
+)
+RASPI_PROCS_RUNNING = 'node_procs_running{instance="$node",job="$job"}'
+RASPI_PROCS_BLOCKED = 'node_procs_blocked{instance="$node",job="$job"}'
+RASPI_CPU_BUSY_PCT_RANGE = (
+    '100 * (1 - avg(rate(node_cpu_seconds_total'
+    '{instance="$node",job="$job",mode="idle"}[1m])))'
+)
+RASPI_MEM_USED_PCT_RANGE = (
+    '100 * (1 - (node_memory_MemAvailable_bytes{instance="$node",job="$job"}'
+    ' / node_memory_MemTotal_bytes{instance="$node",job="$job"}))'
+)
+RASPI_FS_USED_PCT_RANGE = (
+    '100 * (1 - (node_filesystem_avail_bytes{instance="$node",job="$job",mountpoint="/"}'
+    ' / node_filesystem_size_bytes{instance="$node",job="$job",mountpoint="/"}))'
+)
+RASPI_NET_RX_MBPS = (
+    'sum(rate(node_network_receive_bytes_total'
+    '{instance="$node",job="$job",device!="lo"}[1m])) * 8 / 1e6'
+)
+RASPI_NET_TX_MBPS = (
+    'sum(rate(node_network_transmit_bytes_total'
+    '{instance="$node",job="$job",device!="lo"}[1m])) * 8 / 1e6'
+)
+RASPI_CONTAINER_CPU = (
+    'sort_desc(sum by (name) (rate(container_cpu_usage_seconds_total'
+    '{instance="$node",job="$job",name=~".+"}[1m])))'
+)
+RASPI_CONTAINER_MEM_MIB = (
+    'sort_desc(sum by (name) (container_memory_working_set_bytes'
+    '{instance="$node",job="$job",name=~".+"}) / 1024 / 1024)'
+)
 
 # ── Sensors (sensors.py) ─────────────────────────────────────────────────────
 SENSORS_STAGE = """last_over_time(

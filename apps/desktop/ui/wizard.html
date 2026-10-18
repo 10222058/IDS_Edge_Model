@@ -6,46 +6,34 @@
   <title>IoT Gateway Monitor — Setup</title>
   <link rel="stylesheet" href="wizard.css" />
 </head>
-<body>
+<body class="first-run" data-page="wizard">
   <header>
     <div>
       <h1>IoT Gateway Monitor</h1>
-      <div class="sub">
-        <a href="actions.html">Actions</a>
-        ·
-        <a href="monitoring.html">Monitoring</a>
-        ·
-        <a href="admin.html">Admin</a>
-      </div>
+      <div class="sub" id="hdr-sub">First-time setup</div>
     </div>
     <div id="hdr-status"></div>
   </header>
   <main>
+    <div class="first-run-banner" id="first-run-banner">
+      <strong>Welcome.</strong> Install monitoring (Loki and Prometheus) on this PC.
+      After this finishes you will not see this installer again. Register gateways later
+      under <strong>Gateways → Registration</strong>.
+    </div>
+
     <nav class="steps" id="step-tabs"></nav>
 
     <section class="panel step" data-step="0" id="step-engine">
       <h2>Monitoring</h2>
-      <div class="path-choice" role="radiogroup" aria-label="Setup path">
-        <label class="path-option">
-          <input type="radio" name="setup-path" value="monitoring" checked />
-          <span>
-            <strong>Monitoring only</strong>
-            <small>Install Loki and Prometheus on this PC. Skip gateway setup.</small>
-          </span>
-        </label>
-        <label class="path-option">
-          <input type="radio" name="setup-path" value="full" />
-          <span>
-            <strong>Full setup</strong>
-            <small>Monitoring, then SSH and gateway agent install.</small>
-          </span>
-        </label>
-      </div>
+      <p class="muted">
+        Install Loki and Prometheus on this PC. Gateway registration is separate
+        and available after setup in the Gateways section.
+      </p>
       <div class="row">
         <button class="primary" id="btn-prepare-telemetry">Install monitoring</button>
         <button class="secondary" id="btn-stop-telemetry">Stop</button>
         <button class="secondary" id="btn-open-mon-early" disabled>
-          Open Monitoring
+          Open app
         </button>
         <span id="telemetry-badge"></span>
       </div>
@@ -54,91 +42,29 @@
 
     <section class="panel step hidden" data-step="1" id="step-nic">
       <h2>Network</h2>
+      <p class="muted">Pick the LAN address gateways will use to reach Loki on this PC.</p>
       <div class="row">
         <label for="nic-select">LAN address</label>
         <select id="nic-select"></select>
         <button class="secondary" id="btn-refresh-nics">Refresh</button>
       </div>
-      <div class="row gateway-only">
-        <label for="gateway-ip">Gateway IP</label>
-        <input id="gateway-ip" placeholder="192.168.1.50" />
-      </div>
-      <div class="row gateway-only">
-        <label for="net-mode">Windows mode</label>
-        <select id="net-mode">
-          <option value="">Auto</option>
-          <option value="nat">NAT</option>
-          <option value="mirrored">Mirrored</option>
-        </select>
-      </div>
       <button class="primary" id="btn-save-nic">Save</button>
       <div id="nic-msg"></div>
     </section>
 
-    <section class="panel step hidden gateway-only" data-step="2" id="step-ssh">
-      <h2>SSH</h2>
-      <div class="row">
-        <label for="ssh-host">Host</label>
-        <input id="ssh-host" placeholder="192.168.1.50" />
-      </div>
-      <div class="row">
-        <label for="ssh-port">Port</label>
-        <input id="ssh-port" type="number" value="22" style="min-width:6rem" />
-      </div>
-      <div class="row">
-        <label for="ssh-user">User</label>
-        <input id="ssh-user" placeholder="ubuntu" />
-      </div>
-      <div class="row">
-        <label for="ssh-pass">Password</label>
-        <input id="ssh-pass" type="password" autocomplete="off" />
-      </div>
-      <div class="row">
-        <label for="ssh-gid">Gateway ID</label>
-        <input id="ssh-gid" value="gateway" />
-      </div>
-      <div class="row">
-        <button class="secondary" id="btn-fetch-hk">Fetch key</button>
-        <button class="primary" id="btn-pin-hk" disabled>Pin</button>
-        <button class="primary" id="btn-install-key" disabled>Install key</button>
-      </div>
-      <div id="hk-info" class="mono"></div>
-      <div id="ssh-msg"></div>
-    </section>
-
-    <section class="panel step hidden gateway-only" data-step="3" id="step-fw">
-      <h2>Firewall</h2>
-      <p>Allow inbound Loki traffic on port 3100 if the gateway is on another host.</p>
-      <div class="note-box hidden" id="localhost-note"></div>
-      <div id="checklist-wrap"></div>
-      <div class="row">
-        <button class="secondary" id="btn-refresh-cl">Refresh</button>
-        <button class="primary" id="btn-confirm-cl">Confirm</button>
-      </div>
-      <div id="cl-msg"></div>
-    </section>
-
-    <section class="panel step hidden" data-step="4" id="step-launch">
+    <section class="panel step hidden" data-step="2" id="step-launch">
       <h2>Finish</h2>
+      <p class="muted">
+        Start the control service, then open the app. Add gateways from
+        <strong>Gateways → Registration</strong> when you are ready.
+      </p>
       <div class="row">
         <button class="primary" id="btn-start-svc">Start control service</button>
         <button class="secondary" id="btn-open-mon">Open Monitoring</button>
-        <button class="secondary" id="btn-open-actions" type="button">Open Actions</button>
+        <button class="secondary" id="btn-open-gateways" type="button">Open Gateways</button>
         <button class="danger" id="btn-stop-svc">Stop</button>
       </div>
       <div id="svc-msg"></div>
-
-      <div class="gateway-only provision-block">
-        <h3>Gateway agent</h3>
-        <div class="row">
-          <label for="sudo-pass">Sudo password</label>
-          <input id="sudo-pass" type="password" autocomplete="new-password" />
-        </div>
-        <div class="row">
-          <button class="primary" id="btn-provision-agent">Install gateway</button>
-        </div>
-        <div id="provision-msg"></div>
-      </div>
     </section>
 
     <div class="nav">
@@ -146,6 +72,7 @@
       <button class="primary" id="btn-next">Next</button>
     </div>
   </main>
+  <script src="app-shell.js"></script>
   <script src="wizard.js"></script>
 </body>
 </html>

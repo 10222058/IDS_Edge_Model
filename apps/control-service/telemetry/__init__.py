@@ -1,8 +1,9 @@
-"""OS-aware Loki/Prometheus lifecycle, NIC selection, and WSL2 checklist (K18)."""
+"""OS-aware Loki/Prometheus lifecycle, NIC selection, and Windows firewall checklist (K18)."""
 
 from .checklist import (
     ChecklistItem,
     format_checklist_for_display,
+    generate_windows_native_checklist,
     generate_wsl2_nat_checklist,
     refresh_checklist_on_wsl_ip_change,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "format_checklist_for_display",
     "gateway_loki_ready_curl",
     "generate_compose_yaml",
+    "generate_windows_native_checklist",
     "generate_wsl2_nat_checklist",
     "list_ipv4_candidates",
     "pick_default_monitoring_ip",

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IoT Gateway — Gateways</title>
+  <link rel="stylesheet" href="wizard.css" />
+</head>
+<body data-page="gateways">
+  <header>
+    <div>
+      <h1 id="page-title">Gateways</h1>
+      <div class="sub" id="page-sub">Registration · Settings · Clean up</div>
+    </div>
+    <div id="hdr-status"></div>
+  </header>
+  <main>
+    <section class="panel gw-panel" data-tab="registration" id="tab-registration">
+      <h2>Registration</h2>
+      <p class="muted">
+        Scan this PC’s LAN for devices with SSH open, then pin a key and install
+        the gateway agent. On Windows, run as Administrator to apply the Loki
+        firewall rule automatically; on Linux, allow inbound TCP 3100 if the
+        gateway is remote.
+      </p>
+
+      <h3>This PC LAN</h3>
+      <div class="row">
+        <label for="nic-select">LAN address</label>
+        <select id="nic-select"></select>
+        <button type="button" class="secondary" id="btn-refresh-nics">Refresh</button>
+        <button type="button" class="secondary" id="btn-save-nic">Save</button>
+      </div>
+      <div id="nic-msg"></div>
+
+      <h3>Find gateway</h3>
+      <div class="row">
+        <button type="button" class="primary" id="btn-scan-gw">Scan LAN for SSH</button>
+        <span id="scan-badge"></span>
+      </div>
+      <div class="row">
+        <label for="gateway-select">Detected gateway</label>
+        <select id="gateway-select"></select>
+      </div>
+      <div class="note-box" id="scan-msg">Click Scan to find devices with SSH (port 22) on your LAN.</div>
+
+      <h3>SSH</h3>
+      <div class="row">
+        <label for="ssh-port">Port</label>
+        <input id="ssh-port" type="number" value="22" style="min-width:6rem" />
+      </div>
+      <div class="row">
+        <label for="ssh-user">User</label>
+        <input id="ssh-user" placeholder="ubuntu" />
+      </div>
+      <div class="row">
+        <label for="ssh-pass">Password</label>
+        <input id="ssh-pass" type="password" autocomplete="off" />
+      </div>
+      <div class="row">
+        <label for="ssh-gid">Gateway ID</label>
+        <input id="ssh-gid" value="gateway" />
+      </div>
+      <div class="row">
+        <button type="button" class="secondary" id="btn-fetch-hk">Fetch key</button>
+        <button type="button" class="primary" id="btn-pin-hk" disabled>Pin</button>
+        <button type="button" class="primary" id="btn-install-key" disabled>Install key</button>
+      </div>
+      <div id="hk-info" class="mono"></div>
+      <div id="ssh-msg"></div>
+
+      <h3>Firewall</h3>
+      <p class="muted">
+        Opens inbound TCP 3100 for Loki on Windows when elevated. On Linux this
+        step is skipped — open the port on the host firewall if needed.
+      </p>
+      <div class="row">
+        <button type="button" class="primary" id="btn-apply-fw">Apply firewall</button>
+        <button type="button" class="secondary" id="btn-refresh-fw">Refresh status</button>
+        <span id="fw-badge"></span>
+      </div>
+      <div class="note-box" id="fw-msg"></div>
+
+      <h3>Install agent</h3>
+      <div class="row">
+        <label for="sudo-pass">Sudo password</label>
+        <input id="sudo-pass" type="password" autocomplete="new-password" />
+      </div>
+      <div class="row">
+        <button type="button" class="primary" id="btn-provision-agent">Install gateway</button>
+      </div>
+      <div id="provision-msg"></div>
+    </section>
+
+    <section class="panel gw-panel hidden" data-tab="settings" id="tab-settings">
+      <h2>Settings</h2>
+      <p class="muted">Configure a registered gateway and this PC’s monitoring LAN address.</p>
+
+      <div class="row">
+        <label for="cfg-gateway-id">Gateway</label>
+        <select id="cfg-gateway-id"></select>
+        <button type="button" class="secondary" id="btn-refresh-cfg">Refresh</button>
+      </div>
+      <div class="note-box" id="cfg-detail"></div>
+
+      <h3>Connection</h3>
+      <div class="row">
+        <label for="cfg-host">Host / IP</label>
+        <input id="cfg-host" placeholder="192.168.1.50" />
+      </div>
+      <div class="row">
+        <label for="cfg-user">SSH user</label>
+        <input id="cfg-user" placeholder="ubuntu" />
+      </div>
+      <div class="row">
+        <label for="cfg-port">SSH port</label>
+        <input id="cfg-port" type="number" value="22" style="min-width:6rem" />
+      </div>
+      <div class="row">
+        <button type="button" class="primary" id="btn-save-cfg">Save gateway settings</button>
+      </div>
+      <div id="cfg-msg"></div>
+
+      <h3>This PC LAN</h3>
+      <div class="row">
+        <label for="cfg-nic-select">LAN address</label>
+        <select id="cfg-nic-select"></select>
+        <button type="button" class="secondary" id="btn-cfg-refresh-nics">Refresh</button>
+        <button type="button" class="secondary" id="btn-cfg-save-nic">Save</button>
+      </div>
+      <div id="cfg-nic-msg"></div>
+    </section>
+
+    <section class="panel gw-panel hidden" data-tab="cleanup" id="tab-cleanup">
+      <h2>Clean up</h2>
+      <p class="muted">
+        Remove a registered gateway agent from the Pi and drop its registry row.
+        Loki and Prometheus on this PC stay installed. To remove the monitoring
+        panel itself, use <strong>Settings → Remove</strong>.
+      </p>
+
+      <div class="row">
+        <label for="cu-gateway-id">Gateway</label>
+        <select id="cu-gateway-id"></select>
+        <button type="button" class="secondary" id="btn-refresh-cu">Refresh</button>
+      </div>
+      <div class="note-box" id="cu-list"></div>
+      <div class="row">
+        <label for="cu-sudo">Gateway sudo password</label>
+        <input
+          id="cu-sudo"
+          type="password"
+          autocomplete="off"
+          placeholder="required to remove the agent over SSH"
+        />
+      </div>
+      <div class="note-box danger" id="cu-summary"></div>
+      <div class="row">
+        <button type="button" class="danger" id="btn-cu-confirm" disabled>Remove gateway</button>
+      </div>
+      <div id="cu-msg"></div>
+    </section>
+  </main>
+  <script src="app-shell.js"></script>
+  <script src="gateways.js"></script>
+</body>
+</html>

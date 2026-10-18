@@ -49,6 +49,89 @@ def ensure_data_dir() -> Path:
     return d
 
 
+def wipe_app_data(
+    *,
+    preserve_names: frozenset[str] | set[str] | None = None,
+) -> dict[str, object]:
+    """Best-effort delete of everything under ``data_dir()``.
+
+    Recreates an empty data directory afterward so the running app can keep
+    writing settings. Locked files (Chromium profile on Windows) are skipped
+    and listed in ``skipped``. Does not delete the packaged ``.exe``.
+    """
+    import shutil
+
+    root = data_dir()
+    preserve = set(preserve_names or ())
+    removed: list[str] = []
+    skipped: list[str] = []
+    errors: list[str] = []
+    if not root.is_dir():
+        ensure_data_dir()
+        return {
+            "ok": True,
+            "root": str(root),
+            "removed": removed,
+            "skipped": skipped,
+            "errors": errors,
+        }
+
+    def _rm_tree(path: Path) -> None:
+        # Prefer a full rmtree; fall back to per-entry deletes for locks.
+        try:
+            shutil.rmtree(path)
+            return
+        except OSError:
+            pass
+        if not path.is_dir():
+            path.unlink(missing_ok=True)
+            return
+        for child in list(path.iterdir()):
+            try:
+                if child.is_dir():
+                    _rm_tree(child)
+                    if child.exists():
+                        skipped.append(str(child.relative_to(root)))
+                else:
+                    child.unlink()
+            except OSError:
+                skipped.append(str(child.relative_to(root)))
+        try:
+            path.rmdir()
+        except OSError:
+            if path.exists():
+                skipped.append(str(path.relative_to(root)))
+
+    for child in sorted(root.iterdir(), key=lambda p: p.name):
+        if child.name in preserve:
+            skipped.append(child.name)
+            continue
+        try:
+            if child.is_dir():
+                _rm_tree(child)
+                if child.exists():
+                    # Partial delete — count as skipped root entry.
+                    if child.name not in skipped:
+                        skipped.append(child.name)
+                else:
+                    removed.append(child.name)
+            else:
+                child.unlink()
+                removed.append(child.name)
+        except OSError as exc:
+            errors.append(f"{child.name}: {exc}")
+            skipped.append(child.name)
+
+    ensure_data_dir()
+    return {
+        "ok": not errors,
+        "root": str(root),
+        "removed": removed,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+
 def settings_path() -> Path:
     return ensure_data_dir() / "settings.json"
 

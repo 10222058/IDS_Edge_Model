@@ -1,4 +1,4 @@
-"""Docker engine + WSL / localhostForwarding detection for Setup Wizard."""
+"""Runtime detection for the Setup Wizard (Docker optional; WSL not required)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import platform
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -39,22 +39,30 @@ def in_wsl() -> bool:
     return "microsoft" in text or "wsl" in text
 
 
+def operator_runtime() -> Literal["windows", "wsl", "linux"]:
+    """Which operator-PC path the wizard should use."""
+    if in_wsl():
+        return "wsl"
+    if os.name == "nt" or platform.system().lower() == "windows":
+        return "windows"
+    return "linux"
+
+
 def detect_docker() -> DockerStatus:
-    """Run ``docker info`` — healthy only when daemon responds."""
+    """Run ``docker info`` — healthy only when daemon responds.
+
+    The packaged app does **not** require Docker; native Loki/Prometheus are used.
+    """
     exe = shutil.which("docker")
     if not exe:
-        os_name = platform.system().lower()
-        if os_name == "windows" or in_wsl():
-            hint = (
-                "Install Docker inside WSL2 Ubuntu (recommended) or Docker Desktop. "
-                "You will not run compose by hand; the app manages containers."
-            )
-        else:
-            hint = (
-                "Install Docker Engine (e.g. apt install docker.io) and ensure your "
-                "user can run docker without sudo. The app manages compose for you."
-            )
-        return DockerStatus(present=False, healthy=False, hint=hint)
+        return DockerStatus(
+            present=False,
+            healthy=False,
+            hint=(
+                "Docker is not required. The app downloads and runs Loki and "
+                "Prometheus as native processes."
+            ),
+        )
 
     try:
         ver = subprocess.run(
@@ -119,8 +127,13 @@ def detect_wsl() -> WslStatus:
     distro = os.environ.get("WSL_DISTRO_NAME", "")
     wsl_ip = _wsl_eth0_ip() if inside else ""
     note = ""
-    if inside or on_windows:
-        note = "Ensure WSL localhostForwarding is enabled if services run inside WSL2."
+    if inside:
+        note = (
+            "Running inside WSL. The packaged Windows .exe does not need WSL — "
+            "prefer the native Windows build for a PC without WSL."
+        )
+    elif on_windows:
+        note = "WSL is not required. Loki and Prometheus run as native Windows processes."
     return WslStatus(
         on_windows=on_windows or inside,
         in_wsl=inside,
@@ -133,9 +146,13 @@ def detect_wsl() -> WslStatus:
 def environment_snapshot() -> dict[str, Any]:
     docker = detect_docker()
     wsl = detect_wsl()
+    runtime = operator_runtime()
     return {
         "platform": platform.platform(),
         "system": platform.system(),
+        "runtime": runtime,
+        "docker_required": False,
+        "wsl_required": False,
         "docker": asdict(docker),
         "wsl": asdict(wsl),
     }

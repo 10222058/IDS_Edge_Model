@@ -1,4 +1,4 @@
-"""Unit tests for WSL2 NAT guided checklist generation (K18)."""
+"""Unit tests for Windows firewall / legacy WSL2 checklist generation (K18)."""
 
 from __future__ import annotations
 
@@ -8,10 +8,29 @@ from telemetry.checklist import (
     FIREWALL_RULE_NAME,
     LOKI_PORT,
     format_checklist_for_display,
+    generate_windows_native_checklist,
     generate_wsl2_nat_checklist,
     refresh_checklist_on_wsl_ip_change,
 )
 from telemetry.readiness import gateway_loki_ready_curl
+
+
+class NativeWindowsChecklistTests(unittest.TestCase):
+    def test_native_firewall_only_no_portproxy(self) -> None:
+        items = generate_windows_native_checklist(monitoring_ip="192.168.1.10")
+        by_id = {i.id: i for i in items}
+        self.assertIn("firewall_allow", by_id)
+        self.assertIn("firewall_show", by_id)
+        self.assertIn("user_confirm", by_id)
+        self.assertNotIn("portproxy_add", by_id)
+        cmds = "\n".join(i.command for i in items if i.command)
+        self.assertNotIn("portproxy", cmds.lower())
+        self.assertIn("advfirewall", by_id["firewall_allow"].command)
+        self.assertIn(FIREWALL_RULE_NAME, by_id["firewall_allow"].command)
+        self.assertIn("192.168.1.10:3100/ready", by_id["user_confirm"].notes)
+        text = format_checklist_for_display(items)
+        self.assertIn("firewall checklist", text.lower())
+        self.assertNotIn("wsl2 nat", text.lower())
 
 
 class ChecklistTests(unittest.TestCase):

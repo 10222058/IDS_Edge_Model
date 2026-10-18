@@ -27,6 +27,7 @@
   </div>
   <script>
     const WIZARD = "http://127.0.0.1:9138/wizard.html";
+    const APP = "http://127.0.0.1:9138/monitoring.html#metric";
     const ENV = "http://127.0.0.1:9138/api/wizard/env";
     const msg = document.getElementById("msg");
     const err = document.getElementById("err");
@@ -36,8 +37,12 @@
       try {
         const r = await fetch(ENV, { cache: "no-store" });
         if (r.ok) {
-          msg.textContent = "Opening Setup Wizard…";
-          window.location.href = WIZARD;
+          const data = await r.json().catch(() => ({}));
+          const goApp = !!(data.setup_complete || data.entry === "app");
+          msg.textContent = goApp
+            ? "Opening IoT Gateway Monitor…"
+            : "Opening Setup Wizard…";
+          window.location.href = goApp ? APP : WIZARD;
           return;
         }
       } catch (_) {}

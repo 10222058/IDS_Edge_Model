@@ -357,6 +357,29 @@ class Registry:
         self._conn.commit()
         return cur.rowcount > 0
 
+    @_locked
+    def delete_gateway(self, gateway_id: str) -> bool:
+        """Remove a gateway and its devices / allow-list rows.
+
+        Audit rows are kept (gateway_id nullable historically). Returns False
+        when the gateway id was unknown.
+        """
+        existing = self.get_gateway(gateway_id)
+        if existing is None:
+            return False
+        self._conn.execute(
+            "DELETE FROM devices WHERE gateway_id = ?", (gateway_id,)
+        )
+        self._conn.execute(
+            "DELETE FROM imported_allowlist_ips WHERE gateway_id = ?",
+            (gateway_id,),
+        )
+        cur = self._conn.execute(
+            "DELETE FROM gateways WHERE id = ?", (gateway_id,)
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
     # ── allow-list import / link ──────────────────────────────────────
 
     @_locked

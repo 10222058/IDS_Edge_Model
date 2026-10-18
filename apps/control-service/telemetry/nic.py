@@ -233,8 +233,8 @@ def _parse_windows_netipaddress(text: str) -> list[NicCandidate]:
 
 
 def _collect_windows_host_candidates() -> list[NicCandidate]:
-    """Enumerate Windows host IPv4 from WSL via powershell.exe (NAT path)."""
-    # CSV keeps aliases with spaces intact.
+    """Enumerate Windows host IPv4 via PowerShell (native .exe or from WSL)."""
+    # Semicolon CSV keeps aliases with spaces intact.
     ps = (
         "Get-NetIPAddress -AddressFamily IPv4 | "
         "Where-Object { $_.IPAddress -and $_.InterfaceAlias } | "
@@ -294,14 +294,40 @@ def list_ipv4_candidates(
 ) -> list[NicCandidate]:
     """Enumerate IPv4 addresses for MONITORING_IP selection.
 
-    ``windows_net_mode``:
-      - ``"nat"`` (WSL2 default): prefer Windows host NICs via powershell.exe;
-        always drop WSL distro eth* 172.16/12 addresses.
+    Native Windows ``.exe`` (``os.name == "nt"``, not inside WSL) always uses
+    PowerShell host NICs. WSL is not required.
+
+    ``windows_net_mode`` (legacy / in-WSL only):
+      - ``"nat"``: prefer Windows host NICs via powershell.exe; drop WSL eth*
+        172.16/12 addresses.
       - ``"mirrored"``: Linux ``ip`` inside WSL already sees LAN addresses.
-      - ``None``: auto — if inside WSL, treat as ``nat`` unless overridden.
+      - ``None``: auto — if inside WSL, treat as ``nat``.
     """
+    # Packaged Windows app: never require WSL or the Linux ``ip`` tool.
+    if os.name == "nt" and not in_wsl():
+        raw = _collect_windows_host_candidates()
+        if not apply_defaults:
+            return raw
+        return filter_nic_candidates(
+            raw,
+            exclude_docker_wsl=exclude_docker_wsl,
+            exclude_wsl_nat=False,
+        )
+
+    # Bare Linux (AppImage / source): always use ``ip``. Ignore leftover
+    # windows_net_mode from settings so we never spawn PowerShell.
+    if not in_wsl():
+        raw = _collect_linux_candidates()
+        if not apply_defaults:
+            return raw
+        return filter_nic_candidates(
+            raw,
+            exclude_docker_wsl=exclude_docker_wsl,
+            exclude_wsl_nat=False,
+        )
+
     mode = windows_net_mode
-    if mode is None and in_wsl():
+    if mode is None:
         mode = "nat"
 
     exclude_wsl_nat = mode == "nat"

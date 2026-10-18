@@ -7,21 +7,20 @@
   <link rel="stylesheet" href="wizard.css" />
   <link rel="stylesheet" href="monitoring.css" />
 </head>
-<body>
+<body data-page="monitoring">
   <header>
     <div>
       <h1>Monitoring</h1>
-      <div class="sub">Gateway · Host · Sensors</div>
+      <div class="sub">Metric · Activities · Control Plane</div>
     </div>
     <div class="hdr-actions">
-      <a class="link" href="wizard.html">Setup Wizard</a>
       <span id="hdr-status"></span>
     </div>
   </header>
   <main class="monitoring-main">
     <div id="origin-banner" class="note-box hidden"></div>
     <div id="warn-banner" class="note-box hidden"></div>
-    <div class="row toolbar">
+    <div class="row toolbar" id="mon-toolbar">
       <label for="gateway-id">Gateway</label>
       <select id="gateway-id"></select>
       <label for="range">Range</label>
@@ -31,10 +30,6 @@
         <option value="6h">6h</option>
         <option value="24h">24h</option>
       </select>
-      <label class="chk">
-        <input type="checkbox" id="show-all" />
-        Show all Loki deviceIds
-      </label>
       <button class="secondary" id="btn-refresh">Refresh</button>
       <label class="chk">
         <input type="checkbox" id="auto-refresh" checked />
@@ -42,9 +37,67 @@
       </label>
     </div>
 
-    <nav class="steps" id="mon-tabs"></nav>
+    <!-- Tab chrome lives in the left rail (Gateway Metric / Gateway Activities). -->
+    <nav class="steps mon-subtabs hidden" id="mon-tabs" aria-hidden="true"></nav>
 
-    <section class="panel mon-panel" data-tab="gateway" id="tab-gateway">
+    <section class="panel mon-panel" data-tab="metric" id="tab-metric">
+      <h2>Gateway Metric</h2>
+
+      <h3>General Status</h3>
+      <div class="metrics" id="raspi-metrics"></div>
+      <div class="metrics" id="raspi-metrics-extra"></div>
+      <div class="gauge-row" id="raspi-gauges"></div>
+      <div class="fs-bar-wrap" id="raspi-fs-bar"></div>
+
+      <h3>Hardware charts</h3>
+      <div class="chart-grid">
+        <article class="chart-panel" data-chart="cpu_pct">
+          <header class="chart-head"><span class="chart-title">CPU busy</span><span class="chart-unit">%</span></header>
+          <div class="chart-body" id="chart-cpu_pct"></div>
+        </article>
+        <article class="chart-panel" data-chart="mem_used_pct">
+          <header class="chart-head"><span class="chart-title">Memory used</span><span class="chart-unit">%</span></header>
+          <div class="chart-body" id="chart-mem_used_pct"></div>
+        </article>
+        <article class="chart-panel" data-chart="load1">
+          <header class="chart-head"><span class="chart-title">Load average (1m)</span><span class="chart-unit">load</span></header>
+          <div class="chart-body" id="chart-load1"></div>
+        </article>
+        <article class="chart-panel" data-chart="fs_used_pct">
+          <header class="chart-head"><span class="chart-title">Root filesystem used</span><span class="chart-unit">%</span></header>
+          <div class="chart-body" id="chart-fs_used_pct"></div>
+        </article>
+        <article class="chart-panel" data-chart="net_rx_mbps">
+          <header class="chart-head"><span class="chart-title">Network receive</span><span class="chart-unit">Mbps</span></header>
+          <div class="chart-body" id="chart-net_rx_mbps"></div>
+        </article>
+        <article class="chart-panel" data-chart="net_tx_mbps">
+          <header class="chart-head"><span class="chart-title">Network transmit</span><span class="chart-unit">Mbps</span></header>
+          <div class="chart-body" id="chart-net_tx_mbps"></div>
+        </article>
+        <article class="chart-panel chart-panel-wide" data-chart="temp_c">
+          <header class="chart-head"><span class="chart-title">Temperature</span><span class="chart-unit">°C</span></header>
+          <div class="chart-body" id="chart-temp_c"></div>
+        </article>
+      </div>
+
+      <h3>Containers</h3>
+      <div class="metrics" id="raspi-container-metrics"></div>
+      <div class="chart-grid chart-grid-2">
+        <article class="chart-panel" data-chart="container_cpu">
+          <header class="chart-head"><span class="chart-title">CPU per container</span><span class="chart-unit">cores</span></header>
+          <div class="chart-body" id="chart-container_cpu"></div>
+        </article>
+        <article class="chart-panel" data-chart="container_mem">
+          <header class="chart-head"><span class="chart-title">Memory per container</span><span class="chart-unit">MiB</span></header>
+          <div class="chart-body" id="chart-container_mem"></div>
+        </article>
+      </div>
+
+      <div id="raspi-msg" class="muted"></div>
+    </section>
+
+    <section class="panel mon-panel hidden" data-tab="activities" id="tab-activities">
       <h2>Gateway Activities</h2>
       <div class="metrics" id="gw-metrics"></div>
       <h3>Connected sensors</h3>
@@ -53,27 +106,8 @@
       <div class="table-wrap"><table id="gw-delay"><thead></thead><tbody></tbody></table></div>
       <div id="gw-msg" class="muted"></div>
     </section>
-
-    <section class="panel mon-panel hidden" data-tab="raspi" id="tab-raspi">
-      <h2>Host (Raspi) metrics</h2>
-      <div class="metrics" id="raspi-metrics"></div>
-      <h3>CPU sparkline</h3>
-      <div id="raspi-spark" class="spark-lg"></div>
-      <div id="raspi-msg" class="muted"></div>
-    </section>
-
-    <section class="panel mon-panel hidden" data-tab="sensors" id="tab-sensors">
-      <h2>Sensors Reading</h2>
-      <p class="muted" id="sensors-filter-note"></p>
-      <h3>Sintering stage</h3>
-      <div class="metrics" id="sensors-stages"></div>
-      <h3>Temperatures</h3>
-      <div class="table-wrap"><table id="sensors-temp"><thead></thead><tbody></tbody></table></div>
-      <h3>Pressure</h3>
-      <div class="table-wrap"><table id="sensors-pressure"><thead></thead><tbody></tbody></table></div>
-      <div id="sensors-msg" class="muted"></div>
-    </section>
   </main>
+  <script src="app-shell.js"></script>
   <script src="monitoring.js"></script>
 </body>
 </html>

@@ -6,16 +6,13 @@
   <title>IoT Gateway — Admin</title>
   <link rel="stylesheet" href="wizard.css" />
 </head>
-<body>
+<body data-page="admin">
   <header>
     <div>
-      <h1>IoT Gateway Monitor — Admin</h1>
+      <h1>Admin</h1>
       <div class="sub">Local unlock · Code Signing (K16) · no HSM / Store submission in v1</div>
     </div>
-    <div>
-      <a href="wizard.html" style="color:var(--accent);margin-right:1rem;font-size:0.85rem">← Setup Wizard</a>
-      <span id="hdr-status"></span>
-    </div>
+    <div id="hdr-status"></div>
   </header>
   <main>
     <section class="panel" id="panel-unlock">
@@ -108,6 +105,7 @@
       </div>
     </section>
   </main>
+  <script src="app-shell.js"></script>
   <script src="admin.js"></script>
 </body>
 </html>

@@ -229,6 +229,18 @@ class ProvisionFlowTests(unittest.TestCase):
         base.update(kwargs)
         return ProvisionConfig(**base)
 
+    def test_uninstall_monolithic_agent(self) -> None:
+        from provisioner.agent_install import uninstall_monolithic_agent
+
+        ssh = _ok_ssh()
+        ssh.when("sudo -S", CommandResult(0, "", ""))
+        notes = uninstall_monolithic_agent(ssh, sudo_password="test-sudo-secret")
+        self.assertTrue(any("stopped" in n for n in notes))
+        self.assertTrue(any("removed" in n for n in notes))
+        self.assertFalse(any("test-sudo-secret" in c for c in ssh.commands))
+        self.assertTrue(any("iot-gateway-agent" in c for c in ssh.commands))
+        self.assertTrue(any("/opt/iot-gateway-agent" in c for c in ssh.commands))
+
     def test_agent_backend_no_docker(self) -> None:
         ssh = _ok_ssh()
         ssh.when("command -v mosquitto", CommandResult(0, "OK\n", ""))

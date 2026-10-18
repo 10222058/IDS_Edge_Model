@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IoT Gateway — Remove</title>
+  <link rel="stylesheet" href="wizard.css" />
+</head>
+<body data-page="settings">
+  <header>
+    <div>
+      <h1>Remove</h1>
+      <div class="sub">Uninstall the monitoring panel on this PC</div>
+    </div>
+    <div id="hdr-status"></div>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>Remove monitoring panel</h2>
+      <p class="muted">This removes the monitoring install on this PC.</p>
+      <ul class="remove-list" id="rm-list">
+        <li>Loki and Prometheus</li>
+        <li>Local app data (settings, registry, keyring, Chromium profile)</li>
+        <li id="rm-gateways-item">Registered gateways linked to this panel</li>
+      </ul>
+
+      <div id="sudo-wrap" class="row hidden">
+        <label for="rm-sudo">Gateway sudo password</label>
+        <input
+          id="rm-sudo"
+          type="password"
+          autocomplete="off"
+          placeholder="required to remove gateway agents over SSH"
+        />
+      </div>
+
+      <div class="row">
+        <button class="danger" id="btn-rm-confirm">Confirm remove</button>
+      </div>
+      <div id="rm-msg"></div>
+    </section>
+  </main>
+  <script src="app-shell.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>

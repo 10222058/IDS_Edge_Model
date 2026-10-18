@@ -1,7 +1,7 @@
 """HTTP Setup Wizard UI + JSON API (stdlib).
 
 Serves ``ui/`` and exposes wizard steps that shell out to detect / nic /
-checklist / ssh_setup / launcher. Firewall commands are display-only (K18).
+checklist / ssh_setup / launcher. Native Windows applies Loki :3100 firewall when elevated.
 """
 
 from __future__ import annotations
@@ -17,7 +17,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from . import admin_auth, detect, keyring_store, ssh_setup
+from . import (
+    admin_auth,
+    detect,
+    discover,
+    firewall_apply,
+    keyring_store,
+    ssh_setup,
+    uninstall as uninstall_mod,
+)
 from .launcher import ProcessManager, open_in_browser, wait_http
 from .paths import (
     CONTROL_HOST,
@@ -218,6 +226,7 @@ def _handle_api(
 
         if method == "GET" and path == "/api/wizard/env":
             snap = detect.environment_snapshot()
+            settings = load_settings()
             try:
                 tel = STATE.telemetry.snapshot()
                 job = STATE.telemetry_job_snapshot()
@@ -244,9 +253,26 @@ def _handle_api(
                     "hint": "Monitoring is unavailable.",
                     "job": STATE.telemetry_job_snapshot(),
                 }
-            # Docker is legacy/optional; default path does not require it.
+            # Packaged path: native Loki/Prometheus. Docker and WSL are optional.
             snap["docker_required"] = False
+            snap["wsl_required"] = False
+            # First-run vs returning operator: wizard only until setup finishes.
+            setup_complete = bool(settings.get("setup_complete"))
+            tel_ready = bool((snap.get("telemetry") or {}).get("ready"))
+            snap["setup_complete"] = setup_complete or tel_ready
+            snap["entry"] = "app" if snap["setup_complete"] else "wizard"
             _json_response(handler, 200, snap)
+            return
+
+        if method == "POST" and path == "/api/wizard/setup/complete":
+            settings = load_settings()
+            settings["setup_complete"] = True
+            save_settings(settings)
+            _json_response(
+                handler,
+                200,
+                {"ok": True, "setup_complete": True, "entry": "app"},
+            )
             return
 
         if method == "POST" and path == "/api/wizard/telemetry/ensure":
@@ -345,6 +371,51 @@ def _handle_api(
                         "error": None,
                     }
             _json_response(handler, 200, {"ok": True})
+            return
+
+        if method == "GET" and path == "/api/wizard/uninstall/targets":
+            try:
+                _json_response(handler, 200, uninstall_mod.uninstall_targets())
+            except Exception as e:  # noqa: BLE001
+                logger.exception("uninstall targets failed")
+                _json_response(handler, 500, {"ok": False, "error": str(e)})
+            return
+
+        if method == "POST" and path == "/api/wizard/uninstall":
+            body = _read_json(handler)
+            do_gateway = bool(body.get("gateway", False))
+            do_monitoring = bool(body.get("monitoring", False))
+            # Coupling: Monitoring always removes every registered gateway.
+            if do_monitoring:
+                do_gateway = True
+            sudo_password = str(body.get("sudo_password") or "")
+            gateway_id = str(body.get("gateway_id") or "").strip() or None
+            try:
+                out = uninstall_mod.run_uninstall(
+                    gateway=do_gateway,
+                    monitoring=do_monitoring,
+                    sudo_password=sudo_password,
+                    gateway_id=None if do_monitoring else gateway_id,
+                    stop_telemetry=lambda: STATE.telemetry.stop(),
+                    stop_services=lambda: STATE.manager.stop_all(),
+                    telemetry_uninstall=lambda: STATE.telemetry.uninstall(),
+                    reset_telemetry_mgr=lambda: setattr(STATE, "_telemetry", None),
+                )
+                with STATE.lock:
+                    STATE._telemetry_job = {
+                        "state": "idle",
+                        "detail": "Uninstalled." if out.get("ok") else "Uninstall finished with errors.",
+                        "error": None if out.get("ok") else "uninstall errors",
+                    }
+                    STATE.firewall_confirmed = False
+                # Never echo sudo password back.
+                sudo_password = ""
+                _json_response(handler, 200 if out.get("ok") else 207, out)
+            except uninstall_mod.UninstallError as e:
+                _json_response(handler, 409, {"ok": False, "error": str(e)})
+            except Exception as e:  # noqa: BLE001
+                logger.exception("uninstall failed")
+                _json_response(handler, 500, {"ok": False, "error": str(e)})
             return
 
         if method == "GET" and path == "/api/wizard/telemetry/status":
@@ -457,39 +528,173 @@ def _handle_api(
             body = _read_json(handler)
             ip = str(body.get("monitoring_ip") or "").strip()
             nic = str(body.get("nic_name") or "").strip()
-            if not ip:
-                _json_response(handler, 400, {"error": "monitoring_ip required"})
+            gateway_ip = str(body.get("gateway_ip") or "").strip()
+            if not ip and not gateway_ip:
+                _json_response(
+                    handler, 400, {"error": "monitoring_ip or gateway_ip required"}
+                )
                 return
             settings = load_settings()
-            settings["monitoring_ip"] = ip
+            if ip:
+                settings["monitoring_ip"] = ip
             if nic:
                 settings["nic_name"] = nic
             if body.get("windows_net_mode"):
                 settings["windows_net_mode"] = body["windows_net_mode"]
-            if body.get("gateway_ip"):
-                settings["gateway_ip"] = str(body["gateway_ip"]).strip()
+            if gateway_ip:
+                settings["gateway_ip"] = gateway_ip
             save_settings(settings)
             _json_response(handler, 200, {"ok": True, "settings": settings})
+            return
+
+        if method == "POST" and path == "/api/wizard/settings/gateway":
+            body = _read_json(handler)
+            settings = load_settings()
+            gid = str(body.get("gateway_id") or "").strip()
+            host = str(body.get("ssh_host") or body.get("gateway_ip") or "").strip()
+            if not host:
+                _json_response(handler, 400, {"error": "ssh_host or gateway_ip required"})
+                return
+            if gid:
+                settings["default_gateway_id"] = gid
+            settings["gateway_ip"] = str(body.get("gateway_ip") or host).strip()
+            settings["ssh_host"] = host
+            if body.get("ssh_user") is not None:
+                settings["ssh_user"] = str(body.get("ssh_user") or "ubuntu").strip()
+            if body.get("ssh_port") is not None:
+                try:
+                    settings["ssh_port"] = int(body.get("ssh_port") or 22)
+                except (TypeError, ValueError):
+                    _json_response(handler, 400, {"error": "invalid ssh_port"})
+                    return
+            save_settings(settings)
+            _json_response(handler, 200, {"ok": True, "settings": settings})
+            return
+
+        if method == "POST" and path == "/api/wizard/discover/gateways":
+            body = _read_json(handler)
+            try:
+                port = int(body.get("port") or discover.DEFAULT_SSH_PORT)
+            except (TypeError, ValueError):
+                _json_response(handler, 400, {"error": "invalid port"})
+                return
+            try:
+                timeout_s = float(body.get("timeout_s") or discover.DEFAULT_TIMEOUT_S)
+            except (TypeError, ValueError):
+                timeout_s = discover.DEFAULT_TIMEOUT_S
+            monitoring_ip = str(body.get("monitoring_ip") or "").strip() or None
+            prefix = body.get("prefix")
+            try:
+                pref = int(prefix) if prefix is not None and prefix != "" else None
+            except (TypeError, ValueError):
+                _json_response(handler, 400, {"error": "invalid prefix"})
+                return
+            try:
+                out = discover.discover_gateways(
+                    monitoring_ip=monitoring_ip,
+                    prefix=pref,
+                    port=port,
+                    timeout_s=timeout_s,
+                )
+                _json_response(handler, 200, out)
+            except ValueError as e:
+                _json_response(handler, 400, {"error": str(e)})
+            except Exception as e:  # noqa: BLE001
+                logger.exception("gateway discover failed")
+                _json_response(handler, 500, {"error": str(e)})
+            return
+
+        if method == "GET" and path == "/api/wizard/firewall/status":
+            try:
+                st = firewall_apply.firewall_status()
+                st["confirmed"] = STATE.firewall_confirmed or bool(
+                    st.get("rule_present")
+                )
+                _json_response(handler, 200, st)
+            except Exception as e:  # noqa: BLE001
+                logger.exception("firewall status failed")
+                _json_response(handler, 500, {"error": str(e)})
+            return
+
+        if method == "POST" and path == "/api/wizard/firewall/apply":
+            try:
+                out = firewall_apply.apply_loki_firewall()
+                if out.get("ok"):
+                    STATE.firewall_confirmed = True
+                    settings = load_settings()
+                    settings["firewall_checklist_confirmed"] = True
+                    save_settings(settings)
+                _json_response(handler, 200, out)
+            except firewall_apply.FirewallError as e:
+                _json_response(handler, 403, {"ok": False, "error": str(e)})
+            except Exception as e:  # noqa: BLE001
+                logger.exception("firewall apply failed")
+                _json_response(handler, 500, {"ok": False, "error": str(e)})
             return
 
         if method == "GET" and path == "/api/wizard/checklist":
             from telemetry.checklist import (  # type: ignore[import-not-found]
                 format_checklist_for_display,
+                generate_windows_native_checklist,
                 generate_wsl2_nat_checklist,
                 refresh_checklist_on_wsl_ip_change,
             )
 
             settings = load_settings()
             wsl = detect.detect_wsl()
-            wsl_ip = str(settings.get("wsl2_ip") or wsl.wsl_ip or "").strip()
+            runtime = detect.operator_runtime()
             monitoring_ip = str(settings.get("monitoring_ip") or "").strip() or None
-            if not wsl_ip:
+            fw = firewall_apply.firewall_status()
+
+            # Packaged Windows .exe: native Loki on 0.0.0.0:3100 — firewall only.
+            # Prefer in-app apply when elevated; keep commands as fallback detail.
+            if runtime == "windows":
+                items = generate_windows_native_checklist(monitoring_ip=monitoring_ip)
+                payload_items = [
+                    {
+                        "id": i.id,
+                        "title": i.title,
+                        "command": i.command,
+                        "notes": i.notes,
+                    }
+                    for i in items
+                ]
+                confirmed = STATE.firewall_confirmed or bool(fw.get("rule_present"))
+                _json_response(
+                    handler,
+                    200,
+                    {
+                        "applicable": True,
+                        "path": "windows_native",
+                        "monitoring_ip": monitoring_ip,
+                        "items": payload_items,
+                        "display": format_checklist_for_display(items),
+                        "auto_apply": True,
+                        "elevated": fw.get("elevated"),
+                        "rule_present": fw.get("rule_present"),
+                        "note": (
+                            "The app applies the Windows Firewall rule when run as "
+                            "Administrator (inbound TCP 3100). WSL is not required."
+                        ),
+                        "localhost_forwarding_note": wsl.localhost_forwarding_note,
+                        "confirmed": confirmed,
+                    },
+                )
+                return
+
+            # Legacy: app running inside WSL2 still uses portproxy guidance.
+            wsl_ip = str(settings.get("wsl2_ip") or wsl.wsl_ip or "").strip()
+            if runtime != "wsl" or not wsl_ip:
                 _json_response(
                     handler,
                     200,
                     {
                         "applicable": False,
-                        "reason": "No WSL2 IP detected — checklist is for Windows NAT path only.",
+                        "path": runtime,
+                        "reason": (
+                            "Firewall checklist is for Windows. On Linux, allow "
+                            "TCP 3100 on MONITORING_IP if the gateway is remote."
+                        ),
                         "items": [],
                         "display": "",
                         "localhost_forwarding_note": wsl.localhost_forwarding_note,
@@ -521,6 +726,7 @@ def _handle_api(
                 200,
                 {
                     "applicable": True,
+                    "path": "wsl2_nat",
                     "wsl2_ip": wsl_ip,
                     "monitoring_ip": monitoring_ip,
                     "items": payload_items,
@@ -540,11 +746,12 @@ def _handle_api(
             STATE.firewall_confirmed = True
             settings = load_settings()
             settings["firewall_checklist_confirmed"] = True
-            # Remember current WSL IP so a later change re-shows checklist.
-            wsl = detect.detect_wsl()
-            if wsl.wsl_ip:
-                settings["wsl2_ip_prev"] = settings.get("wsl2_ip") or wsl.wsl_ip
-                settings["wsl2_ip"] = wsl.wsl_ip
+            # Legacy WSL path only: remember WSL IP so a later change re-shows.
+            if detect.operator_runtime() == "wsl":
+                wsl = detect.detect_wsl()
+                if wsl.wsl_ip:
+                    settings["wsl2_ip_prev"] = settings.get("wsl2_ip") or wsl.wsl_ip
+                    settings["wsl2_ip"] = wsl.wsl_ip
             save_settings(settings)
             _json_response(handler, 200, {"ok": True, "confirmed": True})
             return
@@ -1179,7 +1386,7 @@ class WizardHandler(BaseHTTPRequestHandler):
     def _serve_static(self, path: str) -> None:
         ui = desktop_ui_dir()
         if path in ("", "/"):
-            path = "/wizard.html"
+            path = "/splash.html"
         # Prevent path traversal
         rel = path.lstrip("/").replace("..", "")
         file_path = (ui / rel).resolve()
@@ -1208,8 +1415,8 @@ def serve(
     open_browser: bool = True,
 ) -> ThreadingHTTPServer:
     server = ThreadingHTTPServer((host, port), WizardHandler)
-    url = f"http://{host}:{port}/wizard.html"
-    logger.info("Setup Wizard at %s", url)
+    url = f"http://{host}:{port}/splash.html"
+    logger.info("IoT Gateway Monitor UI at %s", url)
     if open_browser:
         threading.Timer(0.5, lambda: open_in_browser(url)).start()
     return server

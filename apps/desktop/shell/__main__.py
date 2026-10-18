@@ -145,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
         f"Monitoring   → http://{args.host}:{args.port}/monitoring.html\n"
         f"Control API  → http://{CONTROL_HOST}:{CONTROL_PORT}\n"
         f"Streamlit    → http://{CONTROL_HOST}:{STREAMLIT_PORT} (optional)\n"
-        "Windows: Loki :3100 via guided checklist only; UI ports need localhostForwarding."
+        "Windows: native Loki/Prometheus (no WSL); firewall checklist for :3100 only."
     )
     try:
         run_forever(args.host, args.port, open_browser=not args.no_browser)

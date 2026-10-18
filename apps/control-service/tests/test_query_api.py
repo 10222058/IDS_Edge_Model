@@ -430,13 +430,39 @@ class QueryApiTests(unittest.TestCase):
                         "result": [
                             {
                                 "metric": {},
-                                "values": [["1", "0.1"], ["2", "0.2"]],
+                                "values": [["1", "10"], ["2", "20"]],
+                            }
+                        ]
+                    },
+                }
+            if "container_cpu_usage_seconds_total" in q:
+                return {
+                    "status": "success",
+                    "data": {
+                        "result": [
+                            {
+                                "metric": {"name": "iot-nodered"},
+                                "value": [1, "0.25"],
+                            }
+                        ]
+                    },
+                }
+            if "container_memory_working_set_bytes" in q:
+                return {
+                    "status": "success",
+                    "data": {
+                        "result": [
+                            {
+                                "metric": {"name": "iot-mosquitto"},
+                                "value": [1, "42.5"],
                             }
                         ]
                     },
                 }
             val = "1"
-            if "MemTotal" in q and "MemAvailable" in q:
+            if "MemAvailable" in q and "MemTotal" in q and "100 *" in q:
+                val = "50"
+            elif "MemTotal" in q and "MemAvailable" in q:
                 val = "500000000"
             elif "MemTotal" in q:
                 val = "1000000000"
@@ -452,6 +478,18 @@ class QueryApiTests(unittest.TestCase):
                 val = "64000000000"
             elif "container_last_seen" in q:
                 val = "7"
+            elif "node_hwmon_temp" in q:
+                val = "48.2"
+            elif "node_boot_time" in q or "node_time_seconds" in q:
+                val = "86400"
+            elif "SwapTotal" in q:
+                val = "12.5"
+            elif "iowait" in q:
+                val = "0.05"
+            elif "node_procs_running" in q:
+                val = "3"
+            elif "node_procs_blocked" in q:
+                val = "1"
             elif q.startswith("up") or 'up{' in q:
                 val = "1"
             return {
@@ -460,13 +498,22 @@ class QueryApiTests(unittest.TestCase):
             }
 
         with patch("api.query._proxy_get", side_effect=fake_proxy):
-            r = self.client.get("/api/v1/query/summaries/raspi")
+            r = self.client.get(
+                "/api/v1/query/summaries/raspi", params={"range": "15m"}
+            )
         self.assertEqual(r.status_code, 200, r.text)
         body = r.json()
         self.assertTrue(body["up"])
+        self.assertEqual(body["range"], "15m")
         self.assertEqual(body["metrics"]["cpu_cores"], 4)
         self.assertEqual(body["metrics"]["active_containers"], 7)
         self.assertEqual(body["metrics"]["mem_used_pct"], 50.0)
+        self.assertEqual(body["metrics"]["temp_c"], 48.2)
+        self.assertIn("cpu_pct", body["charts"])
+        self.assertEqual(body["charts"]["cpu_pct"], [10.0, 20.0])
+        self.assertEqual(body["cpu_sparkline_pct"], [10.0, 20.0])
+        self.assertEqual(body["containers"]["cpu"][0]["name"], "nodered")
+        self.assertEqual(body["containers"]["mem_mib"][0]["name"], "mosquitto")
 
     def test_query_requires_token_when_configured(self) -> None:
         settings = Settings(

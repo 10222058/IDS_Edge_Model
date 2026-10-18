@@ -277,13 +277,44 @@ def summary_gateway(
     }
 
 
+def _range_window_s(range_s: str) -> tuple[int, int, str]:
+    """Return (start_unix, end_unix, step) for Prometheus range queries."""
+    start_ns, end_ns = _ns_window(range_s)
+    start = start_ns // 1_000_000_000
+    end = end_ns // 1_000_000_000
+    span = max(end - start, 60)
+    if span <= 900:
+        step = "15s"
+    elif span <= 3600:
+        step = "30s"
+    elif span <= 21600:
+        step = "60s"
+    else:
+        step = "120s"
+    return start, end, step
+
+
+def _container_label(metric: dict[str, Any]) -> str:
+    raw = (
+        metric.get("name")
+        or metric.get("container_name")
+        or metric.get("id")
+        or "?"
+    )
+    name = str(raw).lstrip("/")
+    if name.startswith("iot-"):
+        name = name[4:]
+    return name[:28] or "?"
+
+
 @router.get("/query/summaries/raspi")
 def summary_raspi(
     node: str = Query(default="gateway"),
     job: str = Query(default="node"),
+    range: str = Query(default="1h", alias="range"),
     state: AppState = Depends(get_state),
 ) -> dict[str, Any]:
-    """Host (Raspi) metrics summary for native Monitoring tab."""
+    """Host (Raspi) metrics + chart series for native Monitoring Gateway Metric."""
     _, prom = _backend_urls(state)
     warnings: list[str] = []
 
@@ -296,6 +327,66 @@ def summary_raspi(
             warnings.append(f"prometheus: {e.detail}")
             return 0.0
 
+    def prom_max_scalar(expr: str) -> float:
+        """Highest sample across a multi-series instant query (e.g. temps)."""
+        try:
+            q = Q.prep_prom(expr, node=node, job=job)
+            data = _proxy_get(f"{prom}/api/v1/query", {"query": q})
+            result = (data or {}).get("data", {}).get("result", []) or []
+            best = 0.0
+            found = False
+            for r in result:
+                try:
+                    if "value" in r:
+                        v = float(r["value"][1])
+                    elif "values" in r and r["values"]:
+                        v = float(r["values"][-1][1])
+                    else:
+                        continue
+                except (TypeError, ValueError, IndexError, KeyError):
+                    continue
+                if not found or v > best:
+                    best = v
+                    found = True
+            return best if found else 0.0
+        except HTTPException as e:
+            warnings.append(f"prometheus: {e.detail}")
+            return 0.0
+
+    def prom_spark(expr: str, *, scale: float = 1.0, label: str = "spark") -> list[float]:
+        try:
+            q = Q.prep_prom(expr, node=node, job=job)
+            data = _proxy_get(
+                f"{prom}/api/v1/query_range",
+                {"query": q, "start": start, "end": end, "step": step},
+            )
+            for r in data.get("data", {}).get("result", []) or []:
+                vals = Q.sparkline_floats(r.get("values") or [], limit=60)
+                if scale != 1.0:
+                    vals = [v * scale for v in vals]
+                return vals
+        except HTTPException as e:
+            warnings.append(f"{label}: {e.detail}")
+        return []
+
+    def prom_named_bars(expr: str, *, limit: int = 8, label: str = "bars") -> list[dict[str, Any]]:
+        try:
+            q = Q.prep_prom(expr, node=node, job=job)
+            data = _proxy_get(f"{prom}/api/v1/query", {"query": q})
+            rows: list[dict[str, Any]] = []
+            for r in (data.get("data", {}).get("result", []) or [])[:limit]:
+                metric = r.get("metric") or {}
+                rows.append(
+                    {
+                        "name": _container_label(metric),
+                        "value": round(_extract_scalar({"data": {"result": [r]}}), 3),
+                    }
+                )
+            return rows
+        except HTTPException as e:
+            warnings.append(f"{label}: {e.detail}")
+            return []
+
     cpu = prom_scalar(Q.RASPI_CPU_USAGE)
     cores = prom_scalar(Q.RASPI_CPU_CORES)
     mem_total = prom_scalar(Q.RASPI_MEM_TOTAL)
@@ -305,29 +396,29 @@ def summary_raspi(
     fs_size = prom_scalar(Q.RASPI_FS_SIZE)
     containers = int(prom_scalar(Q.RASPI_ACTIVE_CONTAINERS))
     up = prom_scalar(Q.RASPI_UP)
+    temp_c = prom_max_scalar(Q.RASPI_TEMP_C)
+    uptime_s = prom_scalar(Q.RASPI_UPTIME_S)
+    swap_pct = prom_scalar(Q.RASPI_SWAP_PCT)
+    iowait = prom_scalar(Q.RASPI_IOWAIT)
+    procs_run = prom_scalar(Q.RASPI_PROCS_RUNNING)
+    procs_blk = prom_scalar(Q.RASPI_PROCS_BLOCKED)
 
-    end = int(time.time())
-    start = end - 1800
-    cpu_spark: list[float] = []
-    try:
-        q = Q.prep_prom(
-            '1 - avg(rate(node_cpu_seconds_total{instance="$node",job="$job",mode="idle"}[1m]))',
-            node=node,
-            job=job,
-        )
-        data = _proxy_get(
-            f"{prom}/api/v1/query_range",
-            {"query": q, "start": start, "end": end, "step": "60s"},
-        )
-        for r in data.get("data", {}).get("result", []) or []:
-            cpu_spark = [v * 100 for v in Q.sparkline_floats(r.get("values") or [])]
-            break
-    except HTTPException as e:
-        warnings.append(f"cpu_sparkline: {e.detail}")
+    start, end, step = _range_window_s(range)
+    cpu_spark = prom_spark(Q.RASPI_CPU_BUSY_PCT_RANGE, label="cpu_sparkline")
+    mem_spark = prom_spark(Q.RASPI_MEM_USED_PCT_RANGE, label="mem_sparkline")
+    load_spark = prom_spark(Q.RASPI_LOAD1, label="load_sparkline")
+    fs_spark = prom_spark(Q.RASPI_FS_USED_PCT_RANGE, label="fs_sparkline")
+    net_rx_spark = prom_spark(Q.RASPI_NET_RX_MBPS, label="net_rx_sparkline")
+    net_tx_spark = prom_spark(Q.RASPI_NET_TX_MBPS, label="net_tx_sparkline")
+    temp_spark = prom_spark(Q.RASPI_TEMP_C, label="temp_sparkline")
+
+    container_cpu = prom_named_bars(Q.RASPI_CONTAINER_CPU, label="container_cpu")
+    container_mem = prom_named_bars(Q.RASPI_CONTAINER_MEM_MIB, label="container_mem")
 
     return {
         "node": node,
         "job": job,
+        "range": range,
         "up": bool(up),
         "metrics": {
             "cpu_cores_busy": round(cpu, 3),
@@ -342,8 +433,27 @@ def summary_raspi(
                 round((1 - fs_avail / fs_size) * 100, 1) if fs_size else 0.0
             ),
             "active_containers": containers,
+            "temp_c": round(temp_c, 1) if temp_c else None,
+            "uptime_s": int(uptime_s) if uptime_s else 0,
+            "swap_pct": round(swap_pct, 1) if swap_pct else 0.0,
+            "iowait_cores": round(iowait, 3) if iowait else 0.0,
+            "procs_running": int(procs_run) if procs_run else 0,
+            "procs_blocked": int(procs_blk) if procs_blk else 0,
         },
         "cpu_sparkline_pct": cpu_spark,
+        "charts": {
+            "cpu_pct": cpu_spark,
+            "mem_used_pct": mem_spark,
+            "load1": load_spark,
+            "fs_used_pct": fs_spark,
+            "net_rx_mbps": net_rx_spark,
+            "net_tx_mbps": net_tx_spark,
+            "temp_c": temp_spark,
+        },
+        "containers": {
+            "cpu": container_cpu,
+            "mem_mib": container_mem,
+        },
         "warnings": warnings,
     }
 

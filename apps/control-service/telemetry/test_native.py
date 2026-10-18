@@ -64,6 +64,17 @@ class NativeHelperTests(unittest.TestCase):
             self.assertFalse(st.running)
             self.assertIn("3100", st.detail)
 
+    def test_snapshot_does_not_probe_before_binaries_exist(self) -> None:
+        """Fresh PC: no Loki/Prometheus files, so status must not touch the ports."""
+        with tempfile.TemporaryDirectory() as tmp:
+            mgr = nv.NativeTelemetryManager(tmp)
+            with mock.patch.object(mgr, "_http_ready") as probe:
+                snap = mgr.snapshot()
+            probe.assert_not_called()
+            self.assertFalse(snap.ready)
+            self.assertFalse(snap.binaries_present)
+            self.assertIn("not installed", snap.detail.lower())
+
     def test_start_reuses_already_ready(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             mgr = nv.NativeTelemetryManager(tmp)
@@ -72,6 +83,34 @@ class NativeHelperTests(unittest.TestCase):
                 st = mgr.start(ensure_bins=False, wait=False)
             self.assertTrue(st.running)
             self.assertIn("running", st.detail.lower())
+
+    def test_uninstall_removes_bins_and_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "telemetry"
+            mgr = nv.NativeTelemetryManager(root)
+            mgr.bin_dir.mkdir(parents=True)
+            (mgr.bin_dir / "loki").write_text("x", encoding="utf-8")
+            (mgr.bin_dir / "prometheus").write_text("x", encoding="utf-8")
+            mgr.loki_data.mkdir(parents=True)
+            (mgr.loki_data / "chunk").write_text("d", encoding="utf-8")
+            mgr.config_dir.mkdir(parents=True)
+            (mgr.config_dir / "loki-config.yaml").write_text("x", encoding="utf-8")
+            with mock.patch.object(mgr, "stop") as stop:
+                out = mgr.uninstall()
+            stop.assert_called_once()
+            self.assertTrue(out["ok"])
+            self.assertFalse(mgr.bin_dir.exists())
+            self.assertFalse(mgr.loki_data.exists())
+            self.assertFalse(root.exists())
+
+    def test_uninstall_idempotent_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "missing-telemetry"
+            mgr = nv.NativeTelemetryManager(root)
+            with mock.patch.object(mgr, "stop"):
+                out = mgr.uninstall()
+            self.assertTrue(out["ok"])
+            self.assertEqual(out["removed"], [])
 
 
 class PortOpenTests(unittest.TestCase):

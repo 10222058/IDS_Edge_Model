@@ -164,6 +164,15 @@ class RegistryTests(unittest.TestCase):
         self.assertIsNone(d3["ip"])
         self.assertEqual(d3["cert_fingerprint"], "fp-keep")
 
+    def test_delete_gateway_cascades_devices(self) -> None:
+        self._seed_gateway("gw1")
+        self.reg.upsert_device("gw1", "sensor1", ip="10.0.0.5")
+        self.reg.import_allowlist_ips("gw1", ["10.0.0.5"])
+        self.assertTrue(self.reg.delete_gateway("gw1"))
+        self.assertIsNone(self.reg.get_gateway("gw1"))
+        self.assertEqual(self.reg.list_devices("gw1"), [])
+        self.assertFalse(self.reg.delete_gateway("gw1"))
+
     def test_delete_device(self) -> None:
         self._seed_gateway()
         self.reg.upsert_device("gw1", "sensor1", ip="10.0.0.5")

@@ -1,12 +1,12 @@
 # IoT Gateway Monitor
 
-Cross-platform desktop app: **download → double-click → Setup Wizard → provision gateway agent → Monitoring + Actions**.
+Cross-platform desktop app: **download → double-click → Setup Wizard → provision gateway agent → Monitoring + Gateways + Settings**.
 
-No Docker on the operator PC. No Docker on the gateway. No Lab / fake-sensor panel in this build.
+No Docker on the operator PC. No WSL required on Windows. No Docker on the gateway. No Lab / fake-sensor panel in this build.
 
 | Piece | Role |
 |-------|------|
-| **Desktop app** (Windows `.exe` / Linux AppImage) | Wizard, Actions, Monitoring, Admin |
+| **Desktop app** (Windows `.exe` / Linux AppImage) | Wizard, left-rail Monitoring / Gateways / Settings, Actions, Admin |
 | **Local Loki + Prometheus** | App-managed native processes (downloaded once in-UI) |
 | **Gateway agent** | One systemd service: Mosquitto (native) + decrypt → log + metrics + Loki shipper + mDNS |
 | **Communication** | SSH for control/provision; MQTT + HTTP for data |
@@ -19,19 +19,18 @@ No Docker on the operator PC. No Docker on the gateway. No Lab / fake-sensor pan
 
 | Platform | File | How to run |
 |----------|------|------------|
-| **Windows** | `IoTGatewayMonitor.exe` | Download → double-click. If SmartScreen says unrecognized: **More info → Run anyway** (sign via Admin → Code Signing for full trust). |
+| **Windows** | `IoTGatewayMonitor.exe` | Download → double-click (WSL not required). If SmartScreen says unrecognized: **More info → Run anyway** (sign via Admin → Code Signing for full trust). |
 | **Ubuntu / Linux** | `IoTGatewayMonitor-x86_64.AppImage` | `chmod +x` once → double-click |
 
 ### First-run Wizard (all in the UI)
 
-1. Choose **Monitoring only** (default) or **Full setup**.
-2. **Install monitoring** — downloads Loki + Prometheus once and starts them (progress in the Wizard; no Docker). Then **Open Monitoring** to view the UI.
-3. (Full setup) **NIC** — pick MONITORING_IP (LAN address the gateway will push logs to).
-4. (Full setup) **SSH** — pin host key, install ed25519 key (one-time password).
-5. (Full setup) **Firewall** (Windows) — optional guided checklist for Loki `:3100`.
-6. (Full setup) **Launch** — start control service, enter the **gateway sudo password**, then **Install gateway** (apt packages + agent over SSH via `sudo -S`; password is not saved on the PC; no Docker on the device).
+1. First launch is Setup Wizard only — install Loki/Prometheus and pick the LAN address.
+2. **Install monitoring** — downloads Loki + Prometheus once and starts them (progress in the Wizard; no Docker). Then **Open Monitoring**.
+3. Later launches open the left-rail app shell: **Monitoring** (Metric · Activities · Control Plane), **Gateways** (Registration · Settings · Clean up), **Settings** (Remove · Admin).
+4. Register gateways under **Gateways → Registration** (LAN scan, SSH pin/key, firewall on Windows or manual TCP 3100 on Linux, install agent).
+5. **Settings → Remove** uninstalls the monitoring panel on this PC (and registered gateways).
 
-Gateway and fake-sensor steps can wait; Monitoring only is enough for the PC-side stack.
+Gateway and fake-sensor steps can wait; Monitoring install is enough for the PC-side stack.
 
 App data: Linux `~/.local/share/iot-gateway-monitor/`, Windows `%APPDATA%\IoTGatewayMonitor\`.
 

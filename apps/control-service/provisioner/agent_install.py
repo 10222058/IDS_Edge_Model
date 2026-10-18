@@ -262,3 +262,52 @@ def provision_monolithic_agent(
     _probe_agent(ssh)
     notes.append(f"agent healthy; MQTT on gateway {gateway_ip}:1883, metrics :9139")
     return notes
+
+
+def uninstall_monolithic_agent(
+    ssh: SSHSession,
+    *,
+    sudo_password: str,
+    remote_root: str = DEFAULT_AGENT_ROOT,
+    data_dir: str = DEFAULT_AGENT_DATA,
+) -> list[str]:
+    """Stop/disable the agent unit and remove install + data dirs.
+
+    Leaves apt ``mosquitto`` packages installed. Idempotent when already gone.
+    ``sudo_password`` is only passed on ``sudo -S`` stdin (never argv / disk).
+    """
+    if not (sudo_password or "").strip():
+        raise AgentInstallError(
+            "sudo password required — enter it before Uninstall Gateway"
+        )
+    notes: list[str] = []
+    stop = sudo_run(
+        ssh,
+        "systemctl stop iot-gateway-agent 2>/dev/null || true; "
+        "systemctl disable iot-gateway-agent 2>/dev/null || true; "
+        "rm -f /etc/systemd/system/iot-gateway-agent.service; "
+        "systemctl daemon-reload 2>/dev/null || true",
+        sudo_password=sudo_password,
+        timeout=60.0,
+    )
+    if not stop.ok:
+        raise AgentInstallError(
+            "failed to stop/disable iot-gateway-agent: "
+            f"{(stop.stderr or stop.stdout).strip()[:300]}"
+        )
+    notes.append("systemd iot-gateway-agent stopped and disabled")
+
+    cleanup = sudo_run(
+        ssh,
+        f"rm -rf {shlex.quote(remote_root)} {shlex.quote(data_dir)} "
+        f"/etc/iot-gateway-agent.env",
+        sudo_password=sudo_password,
+        timeout=60.0,
+    )
+    if not cleanup.ok:
+        raise AgentInstallError(
+            "failed to remove agent files: "
+            f"{(cleanup.stderr or cleanup.stdout).strip()[:300]}"
+        )
+    notes.append(f"removed {remote_root}, {data_dir}, /etc/iot-gateway-agent.env")
+    return notes

@@ -14,7 +14,7 @@ class DetectDockerTests(unittest.TestCase):
             st = detect.detect_docker()
         self.assertFalse(st.present)
         self.assertFalse(st.healthy)
-        self.assertIn("Docker", st.hint)
+        self.assertIn("not required", st.hint.lower())
 
     def test_healthy_docker(self) -> None:
         ver = mock.Mock(returncode=0, stdout="27.0.0\n", stderr="")
@@ -58,6 +58,12 @@ class DetectWslTests(unittest.TestCase):
         self.assertIn("docker", snap)
         self.assertIn("wsl", snap)
         self.assertIn("platform", snap)
+        self.assertIn("runtime", snap)
+        self.assertFalse(snap["docker_required"])
+        self.assertFalse(snap["wsl_required"])
+
+    def test_operator_runtime_values(self) -> None:
+        self.assertIn(detect.operator_runtime(), ("windows", "wsl", "linux"))
 
 
 if __name__ == "__main__":
