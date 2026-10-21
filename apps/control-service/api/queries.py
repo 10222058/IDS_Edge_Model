@@ -27,7 +27,7 @@ GATEWAY_DENIED_MOSQUITTO = (
     'count_over_time({container="iot-mosquitto"} |~ "Denied PUBLISH" [{range}])'
 )
 GATEWAY_IDS_ALERTS = (
-    'count_over_time({job="ids-alerts", event_type="ids_alert"}[{range}])'
+    'count_over_time({job="ids-alerts"} | json | event_type="ids_alert" [{range}])'
 )
 GATEWAY_ALLOWED_IP_COUNT = "allowed_ip_count"
 GATEWAY_CONNECTED_SENSORS = "mqtt_connected_sensor"

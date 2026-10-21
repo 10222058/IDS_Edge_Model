@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -63,7 +65,30 @@ class DecryptWorker:
             if clear is None:
                 self.messages_fail += 1
                 return
-            line = f"{int(time.time() * 1000)}: {clear}\n"
+            received_at = datetime.now(timezone.utc).isoformat()
+            try:
+                payload = json.loads(clear)
+            except (TypeError, json.JSONDecodeError):
+                payload = clear
+            topic = str(msg.topic or "")
+            topic_parts = topic.split("/")
+            device_id = topic_parts[1] if len(topic_parts) > 1 else ""
+            event = {
+                "gateway_received_at": received_at,
+                "device_reported_at": (
+                    str(payload.get("timestamp") or "")
+                    if isinstance(payload, dict)
+                    else ""
+                ),
+                "event_type": "sensor_data",
+                "deviceId": device_id,
+                "username": device_id,
+                "source_ip": "unknown",
+                "topic": topic,
+                "payload": payload,
+                "payload_size_bytes": len(clear.encode("utf-8")),
+            }
+            line = json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n"
             try:
                 with self.log_path.open("a", encoding="utf-8") as f:
                     f.write(line)

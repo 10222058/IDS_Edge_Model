@@ -14,6 +14,7 @@ from . import AGENT_PORT, __version__
 from .broker import MosquittoSupervisor, write_mosquitto_conf
 from .decrypt_worker import DecryptWorker
 from .health import build_health, build_info
+from .ids_runtime import IDSProcess
 from .mdns import start_mdns, stop_mdns
 from .metrics import AgentMetrics
 from .server import create_server
@@ -124,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     broker = MosquittoSupervisor(conf)
     worker: DecryptWorker | None = None
     shipper: LokiShipper | None = None
+    ids_process = IDSProcess(Path(__file__).resolve().parents[1] / "ids", data)
     metrics = AgentMetrics()
 
     if not args.no_broker:
@@ -146,10 +148,21 @@ def main(argv: list[str] | None = None) -> int:
         worker.start()
         metrics.decrypt_worker = worker
 
+    ids_process.start()
+    alert_log = data / "logs" / "ids-alerts.log"
+    alert_shipper: LokiShipper | None = None
     loki = args.loki_url.strip() or f"http://{args.monitoring_ip}:3100"
+    gateway_label = os.environ.get("IOTGW_GATEWAY_IP", "").strip() or None
     if not args.no_shipper:
-        shipper = LokiShipper(sensor_log, loki_url=loki)
+        shipper = LokiShipper(sensor_log, loki_url=loki, gateway=gateway_label)
         shipper.start()
+        alert_shipper = LokiShipper(
+            alert_log,
+            loki_url=loki,
+            job="ids-alerts",
+            gateway=gateway_label,
+        )
+        alert_shipper.start()
         metrics.shipper = shipper
 
     mdns_handle = None
@@ -221,6 +234,9 @@ def main(argv: list[str] | None = None) -> int:
             worker.stop()
         if shipper:
             shipper.stop()
+        if alert_shipper:
+            alert_shipper.stop()
+        ids_process.stop()
         broker.stop()
         stop_mdns(mdns_handle)
         logger.info("stopped")

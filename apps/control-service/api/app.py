@@ -13,6 +13,7 @@ from .actions import router as actions_router
 from .cert_cache import CertBundleCache
 from .deps import AppState, OpenSSH, default_open_ssh
 from .devices import public_router, router as devices_router
+from .ids import router as ids_router
 from .lab import router as lab_router
 from .query import router as query_router
 from .schemas import HealthResponse
@@ -52,6 +53,7 @@ def create_app(
     app.include_router(actions_router, prefix="/api/v1")
     app.include_router(public_router, prefix="/api/v1")
     app.include_router(query_router, prefix="/api/v1")
+    app.include_router(ids_router, prefix="/api/v1")
     app.include_router(lab_router, prefix="/api/v1")
 
     @app.get("/health", response_model=HealthResponse)

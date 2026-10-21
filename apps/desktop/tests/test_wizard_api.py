@@ -95,9 +95,15 @@ class WizardApiTests(unittest.TestCase):
         self.assertIn("Gateway Metric", mon)
         self.assertIn("monitoring.js", mon)
         self.assertIn("app-shell.js", mon)
+        with urllib.request.urlopen(self.base + "/security.html", timeout=5) as resp:
+            security = resp.read().decode("utf-8")
+        self.assertIn("Security Alerts", security)
+        self.assertIn("Protection Settings", security)
+        self.assertIn("security.js", security)
         with urllib.request.urlopen(self.base + "/app-shell.js", timeout=5) as resp:
             shell = resp.read().decode("utf-8")
         self.assertIn("Monitoring", shell)
+        self.assertIn("Security", shell)
         self.assertIn("Gateways", shell)
         self.assertIn("Registration", shell)
         self.assertIn("Clean up", shell)

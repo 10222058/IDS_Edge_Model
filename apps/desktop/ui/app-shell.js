@@ -28,6 +28,26 @@
       ],
     },
     {
+      id: "security",
+      label: "Security",
+      items: [
+        {
+          id: "security-alerts",
+          label: "Security Alerts",
+          href: "security.html#alerts",
+          page: "security",
+          hash: "alerts",
+        },
+        {
+          id: "protection-settings",
+          label: "Protection Settings",
+          href: "security.html#config",
+          page: "security",
+          hash: "config",
+        },
+      ],
+    },
+    {
       id: "gateways",
       label: "Gateways",
       items: [
@@ -83,9 +103,15 @@
 
   function isActive(item, page, hash) {
     if (item.page !== page) return false;
-    if (page === "monitoring" || page === "gateways") {
+    if (page === "monitoring" || page === "gateways" || page === "security") {
       const want = item.hash || "";
-      const have = hash || (page === "monitoring" ? "metric" : "registration");
+      const have =
+        hash ||
+        (page === "monitoring"
+          ? "metric"
+          : page === "security"
+            ? "alerts"
+            : "registration");
       return want === have;
     }
     return true;

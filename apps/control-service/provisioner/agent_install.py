@@ -19,6 +19,7 @@ _APT_PACKAGES = (
     "mosquitto-clients",
     "python3-venv",
     "python3-pip",
+    "libgomp1",
 )
 
 
@@ -94,7 +95,7 @@ def _upload_agent_tree(
     *,
     sudo_password: str,
 ) -> None:
-    """Upload iot_gateway_agent package + requirements + unit file."""
+    """Upload agent and IDS packages, model/config assets, requirements, and unit."""
     if not agent_src.is_dir():
         raise AgentInstallError(f"agent source missing: {agent_src}")
     mkdir = sudo_run(
@@ -121,6 +122,14 @@ def _upload_agent_tree(
     if not pkg.is_dir():
         raise AgentInstallError(f"missing package dir: {pkg}")
     ssh.upload_tree(pkg, f"{remote_root}/iot_gateway_agent")
+    ids_src = agent_src.parent / "ids"
+    if not ids_src.is_dir():
+        raise AgentInstallError(f"IDS source missing: {ids_src}")
+    for name in ("ids_gateway", "models", "configs"):
+        source = ids_src / name
+        if not source.is_dir():
+            raise AgentInstallError(f"IDS {name} missing: {source}")
+        ssh.upload_tree(source, f"{remote_root}/ids/{name}")
     req = agent_src / "requirements.txt"
     if req.is_file():
         ssh.upload_file(req, f"{remote_root}/requirements.txt")
@@ -159,11 +168,13 @@ def _write_env(
     ssh: SSHSession,
     *,
     monitoring_ip: str,
+    gateway_ip: str,
     sudo_password: str,
     data_dir: str = DEFAULT_AGENT_DATA,
 ) -> None:
     content = (
         f"MONITORING_IP={monitoring_ip}\n"
+        f"IOTGW_GATEWAY_IP={gateway_ip}\n"
         f"IOTGW_AGENT_DATA={data_dir}\n"
         f"LOKI_URL=http://{monitoring_ip}:3100\n"
     )
@@ -254,6 +265,7 @@ def provision_monolithic_agent(
     _write_env(
         ssh,
         monitoring_ip=monitoring_ip,
+        gateway_ip=gateway_ip,
         sudo_password=sudo_password,
         data_dir=data_dir,
     )

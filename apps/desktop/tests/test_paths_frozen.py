@@ -23,6 +23,8 @@ class PathsTests(unittest.TestCase):
         self.assertTrue((ui / "splash.html").is_file())
         self.assertTrue((ui / "settings.html").is_file())
         self.assertTrue((ui / "settings.js").is_file())
+        self.assertTrue((ui / "security.html").is_file())
+        self.assertTrue((ui / "security.js").is_file())
         self.assertTrue((ui / "gateways.html").is_file())
         self.assertTrue((ui / "gateways.js").is_file())
 

@@ -34,11 +34,13 @@ class Detector:
         threshold: float,
         rule_engine: Optional[RuleEngine] = None,
         min_packets_per_window: int = 3,
+        ml_enabled: bool = True,
     ) -> None:
         self.model = model
         self.threshold = threshold
         self.rule_engine = rule_engine or RuleEngine()
         self.min_packets_per_window = max(int(min_packets_per_window), 1)
+        self.ml_enabled = ml_enabled
 
     def evaluate_device(
         self,
@@ -66,6 +68,17 @@ class Detector:
             )
 
         features = build_feature_vector(records)
+
+        if not self.ml_enabled:
+            return DetectionResult(
+                device_id=device_id,
+                src_ip=src_ip,
+                attack_probability=0.0,
+                is_attack=False,
+                features=features,
+                rule_passed=True,
+                skipped_reason="machine_learning_disabled",
+            )
 
         if pkt_count < self.min_packets_per_window:
             return DetectionResult(

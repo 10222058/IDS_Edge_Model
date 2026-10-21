@@ -1,0 +1,77 @@
+.security-main { max-width: 1280px; }
+.security-toolbar, .security-filters, .report-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.security-toolbar { margin: 0 0 1rem; }
+.security-toolbar label, .security-filters label { min-width: 0; }
+.security-toolbar select { min-width: 10rem; }
+.section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.section-heading p { margin-top: 0; }
+.report-actions button { white-space: nowrap; }
+.security-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.6rem;
+  margin: 0.8rem 0 1rem;
+}
+.security-stat {
+  background: #121a24;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem;
+}
+.security-stat strong { display: block; font-size: 1.25rem; }
+.security-stat span { color: var(--muted); font-size: 0.78rem; }
+.security-filters { margin: 0.7rem 0; }
+.security-filters input[type="search"] { flex: 1; min-width: 14rem; }
+.review-toggle { display: inline-flex; align-items: center; gap: 0.4rem; }
+.review-toggle input, .config-switch input { min-width: 0; }
+.table-wrap { width: 100%; overflow-x: auto; }
+#security-alerts { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+#security-alerts th, #security-alerts td {
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem;
+}
+#security-alerts th { color: var(--muted); white-space: nowrap; }
+#security-alerts td.alert-detail { min-width: 18rem; max-width: 38rem; overflow-wrap: anywhere; }
+.severity-critical { color: var(--bad); font-weight: 700; }
+.severity-warning { color: var(--warn); font-weight: 700; }
+.severity-info { color: var(--accent); font-weight: 700; }
+.reviewed-row { opacity: 0.62; }
+.review-button { min-width: 0; padding: 0.3rem 0.55rem !important; }
+.config-switches { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0; }
+.config-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #121a24;
+}
+.config-grid {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(10rem, 18rem);
+  align-items: center;
+  gap: 0.7rem 1rem;
+  max-width: 720px;
+}
+.config-grid label { min-width: 0; }
+.config-grid label small { display: block; margin-top: 0.15rem; color: var(--muted); }
+.config-grid input { min-width: 0; width: 100%; }
+@media (max-width: 650px) {
+  .config-grid { grid-template-columns: 1fr; gap: 0.35rem; }
+  .config-grid input { margin-bottom: 0.5rem; }
+}

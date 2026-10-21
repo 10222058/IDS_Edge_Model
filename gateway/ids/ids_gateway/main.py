@@ -58,6 +58,7 @@ class AlertWriter:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def write(self, payload: dict) -> None:
+        payload.setdefault("event_type", "ids_alert")
         payload.setdefault("@timestamp", datetime.now(timezone.utc).isoformat())
         with self.path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
@@ -137,6 +138,7 @@ def run(config_path: str = "configs/ids_config.yaml") -> None:
         threshold=float(configured_threshold),
         rule_engine=rule_engine,
         min_packets_per_window=min_model_packets,
+        ml_enabled=bool(gateway_cfg.get("ml_enabled", True)),
     )
 
     packet_window_seconds = int(gateway_cfg.get("packet_window_seconds", 3))

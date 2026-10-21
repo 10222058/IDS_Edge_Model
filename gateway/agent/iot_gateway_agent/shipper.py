@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import logging
 import threading
 import time
@@ -23,11 +24,13 @@ class LokiShipper:
         *,
         loki_url: str,
         job: str = "iot-gateway-agent",
+        gateway: str | None = None,
         interval_s: float = 2.0,
     ):
         self.log_path = Path(log_path)
         self.loki_url = loki_url.rstrip("/") + "/loki/api/v1/push"
         self.job = job
+        self.gateway = gateway or socket.gethostname()
         self.interval_s = interval_s
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -74,7 +77,11 @@ class LokiShipper:
         body = {
             "streams": [
                 {
-                    "stream": {"job": self.job, "agent": "iot-gateway-agent"},
+                    "stream": {
+                        "job": self.job,
+                        "agent": "iot-gateway-agent",
+                        "gateway": self.gateway,
+                    },
                     "values": values,
                 }
             ]
