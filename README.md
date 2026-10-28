@@ -38,6 +38,11 @@ Gateway and fake-sensor steps can wait; Monitoring install is enough for the PC-
 
 App data: Linux `~/.local/share/iot-gateway-monitor/`, Windows `%APPDATA%\IoTGatewayMonitor\`.
 
+## Project documentation
+
+- [System guide for presentations and interviews](docs/PROJECT-SYSTEM-GUIDE.md)
+- [Windows executable build instructions](apps/desktop/WINDOWS-BUILD.md)
+
 ---
 
 ## Branches
