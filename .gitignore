@@ -18,6 +18,9 @@ apps/control-service/telemetry/.smoke-stack/
 apps/control-service/.venv/
 apps/desktop/.venv/
 apps/desktop/.local-libs/
+apps/desktop/src-tauri/target/debug/
+apps/documentation/.venv/
+docs/
 apps/desktop/src-tauri/target/
 apps/desktop/build/
 apps/desktop/dist/

@@ -41,6 +41,7 @@ App data: Linux `~/.local/share/iot-gateway-monitor/`, Windows `%APPDATA%\IoTGat
 ## Project documentation
 
 - [System guide for presentations and interviews](docs/PROJECT-SYSTEM-GUIDE.md)
+- [AI and Overleaf thesis-report writing guide](docs/THESIS-REPORT-AI-OVERLEAF-GUIDE.md)
 - [Windows executable build instructions](apps/desktop/WINDOWS-BUILD.md)
 
 ---
